@@ -163,7 +163,6 @@ with tf.name_scope('LoadImage'):
 
 	#追加
 	test_image_queue = tf.train.input_producer(test_images_tf, shuffle=False)
-	#test_image_queue = tf.train.slice_input_producer(test_images_tf, shuffle=False)
 	test_image_dequeue = test_image_queue.dequeue()
 	test_label_queue = tf.train.input_producer(test_labels_tf, shuffle=False)
 	test_label_dequeue = test_label_queue.dequeue()
