@@ -191,7 +191,7 @@ with tf.name_scope('LoadImage'):
 am_testing = tf.placeholder(dtype=bool,shape=())
 img_data = tf.cond(am_testing, lambda:test_x_batch, lambda:x_batch)
 label = tf.cond(am_testing, lambda:test_label_batch, lambda:label_batch)
-#drop = tf.placeholder(tf.float32)
+drop = tf.placeholder(tf.float32)
 un_img_data = unlabel_images
 
 def model(data): #ソフトマックスまで
@@ -200,7 +200,7 @@ def model(data): #ソフトマックスまで
 		#2set: （入力）2048（出力）1000
 		#3set:（入力）1000（出力）クラス数	
 		logits_ = tf.layers.dense(inputs=outputs, units=1000, activation=tf.nn.leaky_relu, name="dense")
-		dropout_ = tf.layers.dropout(inputs=logits_, rate=a.dropout)
+		dropout_ = tf.layers.dropout(inputs=logits_, rate=drop)
 		logits = tf.layers.dense(inputs=dropout_, units=n_classes, name="output") 
 		out = tf.nn.softmax(logits)
 		return out
@@ -295,15 +295,21 @@ with tf.Session(config=tmp_config) as sess:
 	threads = tf.train.start_queue_runners(sess=sess, coord=coord)
 		
 	for step in range(iteration_num):
-		sess.run(train_op, feed_dict={am_testing: False})
+		sess.run(train_op, feed_dict={am_testing: False, drop: a.dropout})
 		if step % a.print_loss_freq == 0:
 			print(step)
 			#print(sess.run(tf.argmax(label, 1)))
-			sess.run(cost, feed_dict={am_testing: False})
-			train_acc = sess.run(accuracy, feed_dict={am_testing: False})
+			sess.run(cost, feed_dict={am_testing: False, drop: 0.0})
+			train_acc = sess.run(accuracy, feed_dict={am_testing: False, drop: 0.0})
 			print("train accuracy", train_acc)
-			summary_writer.add_summary(sess.run(merged, feed_dict={am_testing}), step)
+			summary_writer.add_summary(sess.run(merged, feed_dict={am_testing: False, drop: 0.0}), step)
 
+			print(sess.run(tf.argmax(model(img_data), 1), feed_dict={am_testing: True, drop: 0.0}))
+			test_acc = sess.run(accuracy, feed_dict={am_testing: True, drop: 0.0})
+			summary_writer.add_summary(tf.Summary(value=[
+				tf.Summary.Value(tag="test_summary/test_accuracy", simple_value=test_acc)
+			]), step)
+			print("train accuracy", test_acc)
 			"""
 			#test: testはnumpy型 168/31=6
 			total_test_acc = 0
