@@ -25,7 +25,6 @@ parser.add_argument("--batch_size", type=int, default=32, help="batch size")
 parser.add_argument("--epoch", type=int, help="epoch")
 parser.add_argument("--print_loss_freq", type=int, default=500, help="print loss epoch frequency")
 parser.add_argument("--dropout", type=float, default=0.5, help="dropout_rate. test: 0.0, train=0.5") 
-parser.add_argument("--csv_name", help="path for path_label csv file")
 parser.add_argument("--model", help="inception, resnet")
 parser.add_argument("--gpu_config", default=0, help="0:gpu0, 1:gpu1, -1:both")
 
