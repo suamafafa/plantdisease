@@ -1,3 +1,6 @@
+#ふつうの
+#plantvillage内で分割
+
 import tensorflow as tf
 import numpy as np
 import pandas as pd
@@ -23,7 +26,8 @@ parser.add_argument("--save_dir", help="path for save the model and logs")
 parser.add_argument("--batch_size", type=int, default=32, help="batch size")
 parser.add_argument("--epoch", type=int, help="epoch")
 parser.add_argument("--print_loss_freq", type=int, default=500, help="print loss epoch frequency")
-parser.add_argument("--dropout", type=float, default=0.5, help="dropout_rate. test: 0.0, train=0.2") #!!!!
+parser.add_argument("--dropout", type=float, default=0.5, help="dropout_rate. test: 0.0, train=0.2")
+parser.add_argument("--nclass", type=int)
 parser.add_argument("--model", help="inception, resnet")
 parser.add_argument("--gpu_config", default=0, help="0:gpu0, 1:gpu1, -1:both")
 
@@ -42,7 +46,9 @@ elif a.model == "resnet":
 #------paramas------#
 sample_size = 162915
 #sample_size = 100
-n_classes = 38
+#n_classes = 38
+#n_classes = 21
+n_classes = a.nclass
 iteration_num = int(sample_size/a.batch_size*a.epoch)
 seed = 1145141919
 
@@ -55,49 +61,34 @@ elif a.gpu_config == '1':
 start_time = time.time()
 print("start time : " + str(start_time))
 
-def ImageDecorate(imgs): #with resize
-	r = imgs
-	CROP_SIZE = 256
-	SCALE_SIZE = 286
-	seed = 1141919
-	rot90_times = tf.random_uniform([1], 0,5,dtype=tf.int32)[0]
-	crop_offset = tf.cast(tf.floor(tf.random_uniform([2], 0, SCALE_SIZE - CROP_SIZE + 1, seed=seed)), dtype=tf.int32)
-	r = tf.image.rot90(r, k=rot90_times)
-	r = tf.image.resize_images(r, [SCALE_SIZE, SCALE_SIZE], method=tf.image.ResizeMethod.AREA)
-	r = tf.image.crop_to_bounding_box(r, crop_offset[0], crop_offset[1], CROP_SIZE, SCALE_SIZE)
-	param1 = 0.25
-	param2 = 0.75
-	r = tf.image.random_brightness(r,param1) #明るさ調整
-	r = tf.image.random_contrast(r,lower=param2, upper=1/param2) #コントラスト調整
-	#r = tf.image.resize_images(r, [model_size, model_size])
-	return r
-
 def Resize(imgs): #resize only
 	r = imgs
 	r = tf.image.resize_images(r, [model_size, model_size])
 	return r
 
 with tf.name_scope('LoadImage'):	
-	csv_name = "/home/zhaoyin-t/plant_disease/traindata_int_small_random.csv"
+	#csv_name = "/home/zhaoyin-t/plant_disease/traindata_int_small_random_disease.csv"
+	csv_name = "/home/zhaoyin-t/plant_disease/traindata_seg_int_train.csv"
 	filename_queue = tf.train.string_input_producer([csv_name], shuffle=True)
 	reader = tf.TextLineReader()
 	_, val = reader.read(filename_queue)
-	record_defaults = [["a"], ["a"], [0]]
-	#record_defaults = [["a"],["a"], [0], ["a"], [0]]
-	path, _, label = tf.decode_csv(val, record_defaults=record_defaults)
-	#path, _, _, _, label = tf.decode_csv(val, record_defaults=record_defaults)
+	#record_defaults = [["a"],["a"], [0], [0]]
+	record_defaults = [["a"],["a"],[0],["a"],[0],[0]]
+	#path, _, label, _ = tf.decode_csv(val, record_defaults=record_defaults)
+	path, _, _, _, label, _ = tf.decode_csv(val, record_defaults=record_defaults)
 	readfile = tf.read_file(path)
 	image = tf.image.decode_jpeg(readfile, channels=3)
 	image = tf.image.convert_image_dtype(image, dtype=tf.float32)
 	image = tf.cast(image, dtype=tf.float32)
-	image = image/255.00
-	height,width,ch = image.get_shape()
-    # transform params
-	CROP_SIZE = 256
-	SCALE_SIZE = 286
+	image = tf.image.resize_images(image, (model_size, model_size))
+	h, w, ch = image.get_shape()
+	print(image.get_shape())
+	# transform params
+	CROP_SIZE = int(h)
+	SCALE_SIZE = int(h+20)
 	rot90_times = tf.random_uniform([1], 0,5,dtype=tf.int32)[0]
 	crop_offset = tf.cast(tf.floor(tf.random_uniform([2], 0, SCALE_SIZE - CROP_SIZE + 1, seed=seed)), dtype=tf.int32)
-	def transform(img, rot90_times, crop_offset,scale_size=286,crop_size=256):
+	def transform(img, rot90_times, crop_offset,scale_size=SCALE_SIZE,crop_size=CROP_SIZE):
 		with tf.name_scope('transform'):
 			r = img
 			# rotation
@@ -115,8 +106,7 @@ with tf.name_scope('LoadImage'):
 			r = tf.image.random_contrast(r,lower=param2, upper=1/param2) #コントラスト調整	
 			return r	
 	with tf.name_scope("contrast_images"):
-		image = contrast(image, param1=0.25, param2=0.75) 
-	image = tf.image.resize_images(image, (model_size, model_size))
+		image = contrast(image, param1=0.1, param2=0.9) 
 	label = tf.one_hot(label, depth=n_classes)
 	label = tf.cast(label, dtype=tf.float32)
 	label_batch, x_batch = tf.train.batch([label, image],batch_size=a.batch_size, allow_smaller_final_batch=False)
@@ -128,13 +118,15 @@ with tf.name_scope('LoadImage'):
 	val_labels = fuga[1]
 	"""	
 	#test
-	test_csv_name = "/home/zhaoyin-t/plant_disease/testdata_int.csv"	
+	#test_csv_name = "/home/zhaoyin-t/plant_disease/testdata_int_disease.csv"	
+	test_csv_name = "/home/zhaoyin-t/plant_disease/traindata_seg_int_test.csv"
 	test_filename_queue = tf.train.string_input_producer([test_csv_name], shuffle=True)
 	test_reader = tf.TextLineReader()
 	_, test_val = test_reader.read(test_filename_queue)
-	record_defaults = [["a"], ["a"], ["a"], [0]]
-	#record_defaults = [["a"],[0], [0], [0]]
-	_, test_path, _, test_label = tf.decode_csv(test_val, record_defaults=record_defaults)
+	#test_record_defaults = [["a"], ["a"], ["a"], [0], [0]]
+	test_record_defaults = [["a"], ["a"], [0], ["a"], [0], [0]]
+	#_, test_path, _, test_label, _ = tf.decode_csv(test_val, record_defaults=test_record_defaults)
+	test_path, _, _, _, test_label, _ = tf.decode_csv(test_val, record_defaults=test_record_defaults)
 	test_readfile = tf.read_file(test_path)
 	test_image = tf.image.decode_jpeg(test_readfile, channels=3)
 	test_image = tf.image.convert_image_dtype(test_image, dtype=tf.float32)
@@ -173,7 +165,6 @@ with tf.name_scope("cost"):
 with tf.name_scope("opt"): 
 	#trainable_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, "trainable_section")
 	trainable_vars = [var for var in tf.trainable_variables()]
-	#optimizer = tf.train.AdamOptimizer().minimize(cost, var_list=trainable_vars)
 	adam = tf.train.AdamOptimizer(0.0002,0.5)
 	gradients_vars = adam.compute_gradients(cost, var_list=trainable_vars)	
 	train_op = adam.apply_gradients(gradients_vars)
@@ -183,9 +174,8 @@ def Accuracy(logits, label):
 	accuracy = tf.reduce_mean(tf.cast(correct_pred, tf.float32))
 	return accuracy
 
-with tf.name_scope("Accuracy"):
-	with tf.name_scope("accuracy"):
-		accuracy = Accuracy(logits, label)
+with tf.name_scope("accuracy"):
+	accuracy = Accuracy(logits, label)
 
 #--------------Summary-----------------#
 with tf.name_scope('summary'):
@@ -230,57 +220,33 @@ with tf.Session(config=tmp_config) as sess:
 		sess.run(train_op, feed_dict={am_testing: False, drop: a.dropout})
 		if step % a.print_loss_freq == 0:
 			print(step)
+			sess.run(cost, feed_dict={am_testing: False})
 			train_acc = sess.run(accuracy, feed_dict={am_testing: False, drop: 0.0})
 			print("train accuracy", train_acc)
 			summary_writer.add_summary(sess.run(merged, feed_dict={am_testing: False, drop: 0.0}), step)
 			
 			#test
-			test_acc = sess.run(accuracy, feed_dict={am_testing: True, drop: 0.0})
-			print("test acc", test_acc)
-			"""
-			testlabel = sess.run(label, feed_dict={am_testing:True})
-			testimg = sess.run(data, feed_dict={am_testing:True})
-			print(sess.run(tf.argmax(testimg, 1), feed_dict={am_testing:True}))
-			print()
-			print(sess.run(tf.argmax(testlabel, 1), feed_dict={am_testing: True}))
-
-			"""
-			"""
-			test_acc = sess.run(Accuracy(model(data), label), feed_dict={am_testing: True})
+			test_acc = 0
+			step_num = -(-186//a.batch_size)
+			for i in range(step_num):
+				print(i)
+				tmp_acc = sess.run(accuracy, feed_dict={am_testing: True, drop: 0.0})
+				print(tmp_acc)
+				test_acc += tmp_acc
+			test_acc = test_acc / step_num
+			summary_writer.add_summary(tf.Summary(value=[
+				tf.Summary.Value(tag="test_summary/test_accuracy", simple_value=test_acc)
+			]), step)
 			print("test accuracy", test_acc)
-			
-			testlabel = sess.run(label, feed_dict={am_testing:True})
-			testimg = sess.run(data, feed_dict={am_testing:True})
-			testlogits = model(testimg)
-			test_acc = sess.run(Accuracy(testlogits, testlabel), feed_dict={am_testing: True})
-			print("test accuracy", test_acc)
+			print()
 
-			"""
-			"""
-			data = sess.run(data, feed_dict={am_testing: True})
-			print(data.shape)
-			print(sess.run(tf.argmax(model(data), 1)))
-			data_ = sess.run(test_x_batch)
-			print(data_.shape)
-			print(sess.run(tf.argmax(model(data_), 1)))
-			print()
-			label = sess.run(label, feed_dict={am_testing: True})
-			print(sess.run(tf.argmax(label, 1)))
-			label_ = test_label_batch
-			print(sess.run(tf.argmax(label_, 1)))
-			print()
-			#summary_writer.add_summary(tf.Summary(value=[
-			#	tf.Summary.Value(tag="test_summary/test_accuracy", simple_value=test_acc)
-			#]), step)
-			print()
-			"""
-		if step % (iteration_num/5) == 0:
+		if step % (iteration_num/6) == 0:
            	# SAVE
 			saver.save(sess, a.save_dir + "/model/model.ckpt")
 		
 	saver.save(sess, a.save_dir + "/model/model.ckpt")
 	print('saved at '+ a.save_dir)
-	acoord.request_stop()
+	coord.request_stop()
 	coord.join(threads)
 end_time = time.time()
 print( 'time : ' + str(end_time - start_time))

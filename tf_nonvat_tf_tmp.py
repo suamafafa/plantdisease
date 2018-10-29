@@ -397,8 +397,8 @@ with tf.Session(config=tmp_config) as sess:
 
 			return jetcam
 
-		coord = tf.train.Coordinator()
-		threads = tf.train.start_queue_runners(sess=sess, coord=coord)
+		#coord = tf.train.Coordinator()
+		#threads = tf.train.start_queue_runners(sess=sess, coord=coord)
 		csv_file = pd.read_csv(csv_name, header=None)
 		print(csv_file.shape)
 		#for i in range(1):

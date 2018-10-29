@@ -25,7 +25,8 @@ parser.add_argument("--save_dir", help="path for save the model and logs")
 parser.add_argument("--batch_size", type=int, default=32, help="batch size")
 parser.add_argument("--epoch", type=int, help="epoch")
 parser.add_argument("--print_loss_freq", type=int, default=500, help="print loss epoch frequency")
-parser.add_argument("--dropout", type=float, default=0.2, help="dropout_rate. test: 0.0, train=0.2") #!!!!
+parser.add_argument("--dropout", type=float, default=0.2, help="dropout_rate. test: 0.0, train=0.2") 
+parser.add_argument("--nclass", type=int)
 parser.add_argument("--model", help="inception, resnet")
 parser.add_argument("--gpu_config", default=0, help="0:gpu0, 1:gpu1, -1:both")
 
@@ -44,9 +45,8 @@ elif a.model == "resnet":
 #------paramas------#
 sample_size = 162915
 #sample_size = 100
-n_classes = 38
+n_classes = a.nclass
 iteration_num = int(sample_size/a.batch_size*a.epoch)
-seed = 1145141919
 
 config = tf.ConfigProto(gpu_options=tf.GPUOptions(allow_growth=True))
 if a.gpu_config == '0':
@@ -58,47 +58,7 @@ start_time = time.time()
 print("start time : " + str(start_time))
 
 with tf.name_scope('LoadImage'):
-	"""
-	def load_image(csv_name, record_defaults):
-		filename_queue = tf.train.string_input_producer([csv_name], shuffle=True)
-		reader = tf.TextLineReader()
-		_, val = reader.read(filename_queue)
-		#irecord_defaults = [["a"], ["a"], [0]]
-		#record_defaults = [["a"],[0], [0], [0]]
-		#path, _, label = tf.decode_csv(val, record_defaults=record_defaults)
-		path, _, label = tf.decode_csv(val, record_defaults=record_defaults)
-		readfile = tf.read_file(path)
-		image = tf.image.decode_jpeg(readfile, channels=3)
-		image = tf.image.convert_image_dtype(image, dtype=tf.float32)
-		image = tf.cast(image, dtype=np.float32)
-		image = tf.image.resize_images(image, (model_size, model_size))
-		label = tf.one_hot(label, depth=n_classes)
-		label_batch, x_batch = tf.train.batch([label, image],batch_size=a.batch_size, allow_smaller_final_batch=False)
-		label_batch = tf.cast(label_batch, dtype=np.float32)
-		return x_batch, label_batch
-		
-	#csv_name = "/home/zhaoyin-t/plant_disease/traindata_int_small_random.csv" #合成あり
-	csv_name = "/home/zhaoyin-t/plant_disease/traindata_int_small_random_disease.csv"
-	#csv_name = "/home/zhaoyin-t/plant_disease/path_label_2.csv" #セグメンテーション
-	filename_queue = tf.train.string_input_producer([csv_name], shuffle=True)
-	reader = tf.TextLineReader()
-	_, val = reader.read(filename_queue)
-	#record_defaults = [["a"], ["a"], [0]]
-	record_defaults = [["a"],["a"], [0], ["a"], [0]]
-	#path, _, label = tf.decode_csv(val, record_defaults=record_defaults)
-	path, _, _, _, label = tf.decode_csv(val, record_defaults=record_defaults)
-	readfile = tf.read_file(path)
-	image = tf.image.decode_jpeg(readfile, channels=3)
-	image = tf.image.convert_image_dtype(image, dtype=tf.float32)
-	image = tf.cast(image, dtype=np.float32)
-	
-	height,width,ch = image.get_shape()
-	# transform params
-	CROP_SIZE = 256 
-	SCALE_SIZE = 286 
-	rot90_times = tf.random_uniform([1], 0,5,dtype=tf.int32)[0]
-	crop_offset = tf.cast(tf.floor(tf.random_uniform([2], 0, SCALE_SIZE - CROP_SIZE + 1, seed=seed)), dtype=tf.int32)
-	def transform(img, rot90_times, crop_offset,scale_size=286,crop_size=256):
+	def transform(img, rot90_times, crop_offset,scale_size=SCALE_SIZE,crop_size=CROP_SIZE):
 		with tf.name_scope('transform'):
 			r = img
             # rotation
@@ -115,24 +75,12 @@ with tf.name_scope('LoadImage'):
 			r = tf.image.random_brightness(r,param1) #明るさ調整
 			r = tf.image.random_contrast(r,lower=param2, upper=1/param2) #コントラスト調整
 			return r
+
 	with tf.name_scope("contrast_images"):
-		image = contrast(image, param1=0.25, param2=0.75)
-	image = tf.image.resize_images(image, (model_size, model_size))
-	label = tf.one_hot(label, depth=n_classes)	
-	label_batch, x_batch = tf.train.batch([label, image],batch_size=a.batch_size, allow_smaller_final_batch=False)
-	label_batch = tf.cast(label_batch, dtype=np.float32)
-	iteration_num = int(sample_size/a.batch_size*a.epoch)
-	print("label_batch", label_batch)
-	#path_batch = tf.train.batch([path],batch_size=a.batch_size, allow_smaller_final_batch=False)	
-	"""
-	"""
-	#validation
-	fuga  = load_image(csv_name="/home/zhaoyin-t/plant_disease/validationdata.csv", record_defaults = [["a"], ["a"], [0]])
-	val_images = fuga[0]
-	val_labels = fuga[1]
-	"""
+		image = contrast(image, param1=0.1, param2=0.9)
+	
 	#train
-	csv_name = "/home/zhaoyin-t/plant_disease/traindata_int_small_random.csv"
+	csv_name = "/home/zhaoyin-t/plant_disease/traindata_int_small_random_disease.csv"
 	path_label = pd.read_csv(csv_name, header=None)
 	
 	#test

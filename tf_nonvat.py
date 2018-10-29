@@ -1,6 +1,5 @@
-#without lightGBM
-#回転とか切り出し
-#smallを使って、100エポック
+#ふつうの
+#plantvillageの中で分割
 
 import tensorflow as tf
 import numpy as np

@@ -1,5 +1,5 @@
-#ふつうの
-#plantvillage内で分割
+#tomato only
+#tomato内で分割
 
 import tensorflow as tf
 import numpy as np
@@ -40,17 +40,14 @@ for k, v in a._get_kwargs():
 import tensorflow_hub as hub
 if a.model == "inception":
 	model_size = 299
-	module = hub.Module("https://tfhub.dev/google/imagenet/inception_v3/feature_vector/1", trainable=True)
+	module = hub.Module("https://tfhub.dev/google/imagenet/inception_v3/feature_vector/1", trainable=False)
 elif a.model == "resnet":
 	model_size = 224
-	module = hub.Module("https://tfhub.dev/google/imagenet/resnet_v2_50/feature_vector/1", trainable=True)
+	module = hub.Module("https://tfhub.dev/google/imagenet/resnet_v2_50/feature_vector/1", trainable=False)
 
 #------paramas------#
-sample_size = 162915
-#sample_size = 100
-#n_classes = 38
-#n_classes = 21
-n_classes = a.nclass
+sample_size = 17257 #17257:tomato_df_train, 18160:tomato_df
+n_classes = a.nclass #10
 iteration_num = int(sample_size/a.batch_size*a.epoch)
 seed = 1145141919
 
@@ -71,7 +68,7 @@ def Resize(imgs): #resize only
 with tf.name_scope('LoadImage'):	
 	#csv_name = "/home/zhaoyin-t/plant_disease/traindata_int_small_random_disease.csv"
 	#csv_name = "/home/zhaoyin-t/plant_disease/traindata_seg_int_train_random.csv"
-	csv_name = "/home/zhaoyin-t/plant_disease/traindata_seg_int_random.csv"
+	csv_name = "/home/zhaoyin-t/plant_disease/tomato_df_train.csv"
 	filename_queue = tf.train.string_input_producer([csv_name], shuffle=True, num_epochs=None)
 	reader = tf.TextLineReader()
 	_, val = reader.read(filename_queue)
@@ -84,48 +81,43 @@ with tf.name_scope('LoadImage'):
 	image = tf.image.convert_image_dtype(image, dtype=tf.float32)
 	image = tf.cast(image, dtype=tf.float32)
 	image = tf.image.resize_images(image, (model_size, model_size))
-	"""
-	h, w, ch = image.get_shape()
-	print(image.get_shape())
-	# transform params
-	CROP_SIZE = int(h)
-	SCALE_SIZE = int(h+20)
-	rot90_times = tf.random_uniform([1], 0,5,dtype=tf.int32)[0]
-	crop_offset = tf.cast(tf.floor(tf.random_uniform([2], 0, SCALE_SIZE - CROP_SIZE + 1, seed=seed)), dtype=tf.int32)
-	def transform(img, rot90_times, crop_offset,scale_size=SCALE_SIZE,crop_size=CROP_SIZE):
-		with tf.name_scope('transform'):
-			r = img
-			# rotation
-			r = tf.image.rot90(r, k=rot90_times)
-			# random crop
-			r = tf.image.resize_images(r, [scale_size, scale_size], method=tf.image.ResizeMethod.AREA)
-			r = tf.image.crop_to_bounding_box(r, crop_offset[0], crop_offset[1], crop_size, crop_size)
-			return r	
-	with tf.name_scope('transform_images'):
-		image = transform(image, rot90_times, crop_offset, scale_size=SCALE_SIZE, crop_size=CROP_SIZE)
-	def contrast(img, param1, param2):
-		with tf.name_scope("contrast"):
-			r = img
-			r = tf.image.random_brightness(r,param1) #明るさ調整
-			r = tf.image.random_contrast(r,lower=param2, upper=1/param2) #コントラスト調整	
-			return r	
-	with tf.name_scope("contrast_images"):
-		image = contrast(image, param1=0.1, param2=0.9) 
-	"""
+	
+	if a.augm is True
+	
+		h, w, ch = image.get_shape()
+		print(image.get_shape())
+		# transform params
+		CROP_SIZE = int(h)
+		SCALE_SIZE = int(h+20)
+		rot90_times = tf.random_uniform([1], 0,5,dtype=tf.int32)[0]
+		crop_offset = tf.cast(tf.floor(tf.random_uniform([2], 0, SCALE_SIZE - CROP_SIZE + 1, seed=seed)), dtype=tf.int32)
+		def transform(img, rot90_times, crop_offset,scale_size=SCALE_SIZE,crop_size=CROP_SIZE):
+			with tf.name_scope('transform'):
+				r = img
+				# rotation
+				r = tf.image.rot90(r, k=rot90_times)
+				# random crop
+				r = tf.image.resize_images(r, [scale_size, scale_size], method=tf.image.ResizeMethod.AREA)
+				r = tf.image.crop_to_bounding_box(r, crop_offset[0], crop_offset[1], crop_size, crop_size)
+				return r	
+		with tf.name_scope('transform_images'):
+			image = transform(image, rot90_times, crop_offset, scale_size=SCALE_SIZE, crop_size=CROP_SIZE)
+		def contrast(img, param1, param2):
+			with tf.name_scope("contrast"):
+				r = img
+				r = tf.image.random_brightness(r,param1) #明るさ調整
+				r = tf.image.random_contrast(r,lower=param2, upper=1/param2) #コントラスト調整	
+				return r	
+		with tf.name_scope("contrast_images"):
+			image = contrast(image, param1=0.1, param2=0.9) 
+	
 	label = tf.one_hot(label, depth=n_classes)
 	label = tf.cast(label, dtype=tf.float32)
 	label_batch, x_batch = tf.train.batch([label, image],batch_size=a.batch_size, allow_smaller_final_batch=False)
 	
-	"""
-	#validation
-	fuga  = load_image(csv_name="/home/zhaoyin-t/plant_disease/validationdata.csv", record_defaults = [["a"], ["a"], [0]])
-	val_images = fuga[0]
-	val_labels = fuga[1]
-	"""	
-	"""
 	#test
 	#test_csv_name = "/home/zhaoyin-t/plant_disease/testdata_int_disease.csv"	
-	test_csv_name = "/home/zhaoyin-t/plant_disease/traindata_seg_int_test_random.csv"
+	test_csv_name = "/home/zhaoyin-t/plant_disease/tomato_df_test.csv"
 	test_filename_queue = tf.train.string_input_producer([test_csv_name], shuffle=True)
 	test_reader = tf.TextLineReader()
 	_, test_val = test_reader.read(test_filename_queue)
@@ -140,7 +132,7 @@ with tf.name_scope('LoadImage'):
 	test_image = tf.image.resize_images(test_image, (model_size, model_size))
 	test_label = tf.one_hot(test_label, depth=n_classes)
 	test_label_batch, test_x_batch = tf.train.batch([test_label, test_image],batch_size=a.batch_size, allow_smaller_final_batch=False)
-	"""
+	
 
 #---------------Model--#---------------#
 #data = tf.placeholder(tf.float32, [None, model_size, model_size, 3])
@@ -148,15 +140,15 @@ with tf.name_scope('LoadImage'):
 #dropout = tf.placeholder(tf.float32)
 
 am_testing = tf.placeholder(dtype=bool,shape=())
-#data = tf.cond(am_testing, lambda:test_x_batch, lambda:x_batch)
-data = x_batch
-#label = tf.cond(am_testing, lambda:test_label_batch, lambda:label_batch)
-label = label_batch
+data = tf.cond(am_testing, lambda:test_x_batch, lambda:x_batch)
+#data = x_batch
+label = tf.cond(am_testing, lambda:test_label_batch, lambda:label_batch)
+#label = label_batch
 drop = tf.placeholder(tf.float32)
 
-def model(data):
-	outputs = module(data)
-	with tf.variable_scope("model", reuse=tf.AUTO_REUSE):
+with tf.variable_scope("model", reuse=tf.AUTO_REUSE):
+	def model(data):
+		outputs = module(data)
 		#2set: （入力）2048（出力）1000
 		#3set:（入力）1000（出力）クラス数	
 		y = tf.layers.dense(inputs=outputs, units=n_classes, name="y")
@@ -280,6 +272,7 @@ with tf.Session(config=tmp_config) as sess:
 				print("train accuracy", train_acc)
 				summary_writer.add_summary(sess.run(merged, feed_dict={drop: 0.0}), step)
 		
+				"""
 				if train_acc == 1.0:
 					print("finish training bcz 1.0")
 					
@@ -309,8 +302,8 @@ with tf.Session(config=tmp_config) as sess:
             			#cv2.imwrite("/home/zhaoyin-t/plant_disease/binary_img/test.jpg", img_cam2)
 						print(i)
 					print("finish")
-
 					break
+				"""
 
 			if step % (iteration_num/5) == 0:
         	   	# SAVE
@@ -318,11 +311,6 @@ with tf.Session(config=tmp_config) as sess:
 		
 		saver.save(sess, a.save_dir + "/model/model.ckpt")
 		print('saved at '+ a.save_dir)
-		#graph = tf.get_default_graph()
-		#for op in graph.get_operations():
-		#	#print(op.name) #op
-		#	if "train_logits" in str(op.values):
-		#		print(op.values) #tensor
 		
 		coord.request_stop()
 		coord.join(threads)

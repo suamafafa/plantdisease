@@ -120,8 +120,8 @@ def ImageDecorate(imgs, model_size): #with resize
 	print(r.get_shape())
 	r = tf.image.crop_to_bounding_box(r, crop_offset[0], crop_offset[1], CROP_SIZE, CROP_SIZE)
 	print(r.get_shape())
-	param1 = 0.25
-	param2 = 0.75
+	param1 = 0.1
+	param2 = 0.9
 	r = tf.image.random_brightness(r,param1) #明るさ調整
 	r = tf.image.random_contrast(r,lower=param2, upper=1/param2) #コントラスト調整	#r = tf.image.resize_images(r, [model_size, model_size])
 	r = tf.image.resize_images(r, (model_size, model_size), method=tf.image.ResizeMethod.AREA)
@@ -129,19 +129,18 @@ def ImageDecorate(imgs, model_size): #with resize
 
 with tf.name_scope('LoadImage'):
 	#csv_name = "/home/zhaoyin-t/plant_disease/traindata_int_small_random_disease.csv"
-	csv_name = "traindata_int_lineup.csv"
+	csv_name = "/home/zhaoyin-t/plant_disease/traindata_seg_int_random.csv"
 	filename_queue = tf.train.string_input_producer([csv_name], shuffle=True)
 	reader = tf.TextLineReader()
 	_, val = reader.read(filename_queue)
-	record_defaults = [["a"], ["a"], [0], ["a"], [0]]
+	record_defaults = [["a"],["a"],[0],["a"],[0],[0]]
 	#record_defaults = [["a"],[0], [0], [0]]
-	path, _,  _, _, label = tf.decode_csv(val, record_defaults=record_defaults)
+	path, _, _,  _, label, _ = tf.decode_csv(val, record_defaults=record_defaults)
 	readfile = tf.read_file(path)
 	image = tf.image.decode_jpeg(readfile, channels=3)
 	image = tf.image.convert_image_dtype(image, dtype=tf.float32)
 	image = tf.cast(image, dtype=np.float32)
 	
-	"""
 	height,width,ch = image.get_shape()
 	# transform params
 	CROP_SIZE = 256
@@ -168,7 +167,7 @@ with tf.name_scope('LoadImage'):
 			return r
 	with tf.name_scope("contrast_images"):
 		image = contrast(image, param1=0.25, param2=0.75)
-	"""
+
 	image = tf.image.resize_images(image, (model_size, model_size), method=tf.image.ResizeMethod.AREA)
 	label = tf.one_hot(label, depth=n_classes)
 	label_batch, x_batch = tf.train.batch([label, image],batch_size=a.batch_size, allow_smaller_final_batch=False)
@@ -180,6 +179,7 @@ with tf.name_scope('LoadImage'):
 	val_images = fuga[0]
 	val_labels = fuga[1]
 	"""	
+	"""
 	#unlabel
 	unlabel_image_np = np.load("unlabel_image.npy")
 	unlabel_images_tf = tf.convert_to_tensor(unlabel_image_np, tf.float32)
@@ -203,13 +203,15 @@ with tf.name_scope('LoadImage'):
 	test_image = tf.image.resize_images(test_image, (model_size, model_size))
 	test_label = tf.one_hot(test_label, depth=n_classes)
 	test_label_batch, test_x_batch = tf.train.batch([test_label, test_image],batch_size=a.batch_size, allow_smaller_final_batch=False)
-
+	"""
 #---------------Model--#---------------#
 am_testing = tf.placeholder(dtype=bool,shape=())
-img_data = tf.cond(am_testing, lambda:test_x_batch, lambda:x_batch)
-label = tf.cond(am_testing, lambda:test_label_batch, lambda:label_batch)
+#img_data = tf.cond(am_testing, lambda:test_x_batch, lambda:x_batch)
+#label = tf.cond(am_testing, lambda:test_label_batch, lambda:label_batch)
+img_data = x_batch
+label = label_batch
 drop = tf.placeholder(tf.float32)
-un_img_data = unlabel_images
+#un_img_data = unlabel_images
 
 def model(data): #ソフトマックスまで
 	outputs = module(data)
@@ -225,15 +227,15 @@ def model(data): #ソフトマックスまで
 with tf.name_scope("Model"):
 	with tf.name_scope("model_outputs"):
 		data_out = model(img_data)
-		un_data_out = model(un_img_data) #追加
+		#un_data_out = model(un_img_data) #追加
 	with tf.name_scope('Generate_perturbation'):
 		# generate perturbation
 		r_adv = Generate_perturbation(img_data)
-		un_r_adv = Generate_perturbation(un_img_data)
+		#un_r_adv = Generate_perturbation(un_img_data)
 	    # add perturbation onto x
 		data_r = img_data + r_adv
-		un_data_r = un_img_data + un_r_adv
-		img_data_aug = ImageDecorate(img_data, model_size=model_size)
+		#un_data_r = un_img_data + un_r_adv
+		#img_data_aug = ImageDecorate(img_data, model_size=model_size)
 	
 #-------------Loss&Opt&Acc-----------------#
 with tf.name_scope("loss"):
@@ -242,13 +244,15 @@ with tf.name_scope("loss"):
 	
 	with tf.name_scope('conditional_entropy_loss'):
 		l_cond_entoropy_loss = -tf.reduce_mean(tf.reduce_sum(data_out*tf.log(data_out), axis=[1]))
-		un_cond_entorpy_loss = -tf.reduce_mean(tf.reduce_sum(un_data_out*tf.log(un_data_out), axis=[1]))
+		#un_cond_entorpy_loss = -tf.reduce_mean(tf.reduce_sum(un_data_out*tf.log(un_data_out), axis=[1]))
 
-		cond_entropy_loss = l_cond_entoropy_loss + un_cond_entorpy_loss
-
-	with tf.name_scope('vat_loss'):
-		vat_loss = Get_VAT_loss(img_data, r_adv) + Get_VAT_loss(un_img_data, un_r_adv) + Affine_loss(img_data, img_data_aug)
+		#cond_entropy_loss = l_cond_entoropy_loss + un_cond_entorpy_loss
+		cond_entropy_loss = l_cond_entoropy_loss
 	
+	with tf.name_scope('vat_loss'):
+		#vat_loss = Get_VAT_loss(img_data, r_adv) + Get_VAT_loss(un_img_data, un_r_adv) + Affine_loss(img_data, img_data_aug)
+		vat_loss = Get_VAT_loss(img_data, r_adv)
+
 	cost = cross_entropy_loss + cond_entropy_loss + vat_loss 
 
 with tf.name_scope("opt"):
@@ -269,8 +273,8 @@ with tf.name_scope('summary'):
 	with tf.name_scope('image_summary'):
 		tf.summary.image('image', tf.image.convert_image_dtype(img_data, dtype=tf.uint8, saturate=True), collections=['train'])
 		tf.summary.image('image_noise', tf.image.convert_image_dtype(data_r, dtype=tf.uint8, saturate=True), collections=['train'])
-		tf.summary.image('unlabel_image', tf.image.convert_image_dtype(un_img_data, dtype=tf.uint8, saturate=True), collections=['train'])	
-		tf.summary.image('unlabel_image_noise', tf.image.convert_image_dtype(un_data_r, dtype=tf.uint8, saturate=True),collections=['train'])	
+		#tf.summary.image('unlabel_image', tf.image.convert_image_dtype(un_img_data, dtype=tf.uint8, saturate=True), collections=['train'])	
+		#tf.summary.image('unlabel_image_noise', tf.image.convert_image_dtype(un_data_r, dtype=tf.uint8, saturate=True),collections=['train'])	
 
 	with tf.name_scope("train_summary"):
 		tf.summary.scalar('train_accuracy', accuracy, collections=['train'])
@@ -279,8 +283,8 @@ with tf.name_scope('summary'):
 		tf.summary.scalar('vat_loss', vat_loss, collections=['train'])
 		tf.summary.scalar('total_loss', cost, collections=['train'])	
 
-	with tf.name_scope("test_summary"):
-		acc_summary_test = tf.summary.scalar("test_accuracy", accuracy)	
+	#with tf.name_scope("test_summary"):
+		#acc_summary_test = tf.summary.scalar("test_accuracy", accuracy)	
 
 	for var in tf.trainable_variables():
 		var_summary = tf.summary.histogram(var.op.name + '/Variable_histogram', var, collections=['train'])
@@ -293,7 +297,7 @@ init = tf.global_variables_initializer()
 #saver = tf.train.Saver()
 tmp_config = tf.ConfigProto(
     gpu_options=tf.GPUOptions(
-        visible_device_list="1",
+        visible_device_list="0",
 		allow_growth=True
     )
 )
@@ -313,14 +317,15 @@ with tf.Session(config=tmp_config) as sess:
 		threads = tf.train.start_queue_runners(sess=sess, coord=coord)
 		
 		for step in range(iteration_num):
-			sess.run(train_op, feed_dict={am_testing: False, drop: a.dropout})
+			sess.run(train_op)
 			if step % a.print_loss_freq == 0:
 				print(step)
-				sess.run(cost, feed_dict={am_testing: False, drop: 0.0})
-				train_acc = sess.run(accuracy, feed_dict={am_testing: False, drop: 0.0})
+				sess.run(cost)
+				train_acc = sess.run(accuracy)
 				print("train accuracy", train_acc)
-				summary_writer.add_summary(sess.run(merged, feed_dict={am_testing: False, drop: 0.0}), step)
-
+				summary_writer.add_summary(sess.run(merged), step)
+				
+				"""
 				test_acc = 0
 				test_batch_size = 32
 				step_num = -(-186//test_batch_size)
@@ -335,6 +340,7 @@ with tf.Session(config=tmp_config) as sess:
 				]), step)
 				print("test accuracy", test_acc)
 				print()
+				"""
 			if step % (iteration_num/5) == 0:
            		# SAVE
 				saver.save(sess, a.save_dir + "/model/model.ckpt")
