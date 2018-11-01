@@ -10,10 +10,8 @@ import math
 import argparse
 import sys
 import math
-
+import random
 import tensorflow_hub as hub
-#module = hub.Module("https://tfhub.dev/google/imagenet/inception_v3/feature_vector/1", trainable=False)
-module = hub.Module("https://tfhub.dev/google/imagenet/resnet_v2_50/feature_vector/1", trainable=False)
 
 parser = argparse.ArgumentParser()
 #data args
@@ -33,13 +31,20 @@ a = parser.parse_args()
 for k, v in a._get_kwargs():
     print(k, "=", v)
 
+import tensorflow_hub as hub
+if a.model == "inception":
+	model_size = 299
+	module = hub.Module("https://tfhub.dev/google/imagenet/inception_v3/feature_vector/1", trainable=False)
+elif a.model == "resnet":
+	model_size = 224
+	module = hub.Module("https://tfhub.dev/google/imagenet/resnet_v2_50/feature_vector/1", trainable=False)
+
 #------paramas------#
-sample_size = 162915
+sample_size = 17257
 #sample_size = 100
-n_classes = 38
+n_classes = 10
 iteration_num = int(sample_size/a.batch_size*a.epoch)
 seed = 1145141919
-model_size = 224
 Ip = 1
 xi = 1e-6
 eps = 8.0
@@ -65,7 +70,7 @@ def model(x): #ソフトマックスまで
 	outputs = module(x)
    	#2set: （入力）2048（出力）1000
     #3set:（入力）1000（出力）クラス数
-	with tf.variable_scope('NN',reuse=tf.AUTO_REUSE):
+	with tf.variable_scope('model',reuse=tf.AUTO_REUSE):
 		logits_ = tf.layers.dense(inputs=outputs, units=1000, activation=tf.nn.leaky_relu)
 		dropout_ = tf.layers.dropout(inputs=logits_, rate=dropout_rate)
 		logits = tf.layers.dense(inputs=dropout_, units=n_classes)
@@ -115,56 +120,12 @@ with tf.name_scope('LoadImage'):
 	readfile = tf.read_file(path)
 	image = tf.image.decode_jpeg(readfile, channels=3)
 	image = tf.image.convert_image_dtype(image, dtype=tf.float32)
-	
-	height,width,ch = image.get_shape()
-	# transform params
-	CROP_SIZE = 256 
-	SCALE_SIZE = 286 
-	rot90_times = tf.random_uniform([1], 0,5,dtype=tf.int32)[0]
-	crop_offset = tf.cast(tf.floor(tf.random_uniform([2], 0, SCALE_SIZE - CROP_SIZE + 1, seed=seed)), dtype=tf.int32)
-	def transform(img, rot90_times, crop_offset,scale_size=286,crop_size=256):
-		with tf.name_scope('transform'):
-			r = img
-            # rotation
-			r = tf.image.rot90(r, k=rot90_times)
-            # random crop
-			r = tf.image.resize_images(r, [scale_size, scale_size], method=tf.image.ResizeMethod.AREA)
-			r = tf.image.crop_to_bounding_box(r, crop_offset[0], crop_offset[1], crop_size, crop_size)
-			return r
-	with tf.name_scope('transform_images'):
-		if a.transforming is True: 
-			image = transform(image, rot90_times, crop_offset, scale_size=SCALE_SIZE, crop_size=CROP_SIZE)
 	image = tf.image.resize_images(image, (model_size, model_size))
 	label = tf.one_hot(label, depth=n_classes)	
 	label_batch, x_batch = tf.train.batch([label, image],batch_size=a.batch_size, allow_smaller_final_batch=False)
-	label_batch = tf.cast(label_batch, dtype=np.int64)
-	iteration_num = int(sample_size/a.batch_size*a.epoch)
-	#path_batch = tf.train.batch([path],batch_size=a.batch_size, allow_smaller_final_batch=False)	
-	"""
-	#validation
-	fuga  = load_image(csv_name="/home/zhaoyin-t/plant_disease/validationdata.csv", record_defaults = [["a"], ["a"], [0]])
-	vali_images = fuga[0]
-	vali_labels = fuga[1]
-	"""
-	#test
-	test_image_np = np.load("test_image.npy")
-	#追加
-	#test_image_np = test_image_np[:8,:]
 
-	test_label_np = np.load("test_label_int_onehot.npy")
-	#test_label_np = test_label_np[:8,:]
-	test_image_np = test_image_np/255.0
-	print("test_image_np shape", test_image_np.shape)
-	print("test_label_np shape", test_label_np.shape)
-	test_images = tf.convert_to_tensor(test_image_np, np.float32)
-	test_images = tf.image.resize_images(test_images, (model_size, model_size))
-	print("test.images", test_images)
-	test_labels = tf.convert_to_tensor(test_label_np, np.int64)	
 	
-	#test_images = tf.train.batch(test_images, batch_size=a.batch_size)
-	#test_labels = tf.train.batch(test_labels, batch_size=a.batch_size)
-	test_images, test_labels = tf.train.shuffle_batch([test_images, test_labels], enqueue_many=True, batch_size=8, capacity=186, min_after_dequeue=16, allow_smaller_final_batch=True)
-	
+
 #--------------Model-----------------#
 am_testing = tf.placeholder(dtype=bool,shape=())
 img_data = tf.cond(am_testing, lambda:test_images, lambda: x_batch)

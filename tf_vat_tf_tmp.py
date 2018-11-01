@@ -273,8 +273,6 @@ with tf.name_scope('summary'):
 	with tf.name_scope('image_summary'):
 		tf.summary.image('image', tf.image.convert_image_dtype(img_data, dtype=tf.uint8, saturate=True), collections=['train'])
 		tf.summary.image('image_noise', tf.image.convert_image_dtype(data_r, dtype=tf.uint8, saturate=True), collections=['train'])
-		#tf.summary.image('unlabel_image', tf.image.convert_image_dtype(un_img_data, dtype=tf.uint8, saturate=True), collections=['train'])	
-		#tf.summary.image('unlabel_image_noise', tf.image.convert_image_dtype(un_data_r, dtype=tf.uint8, saturate=True),collections=['train'])	
 
 	with tf.name_scope("train_summary"):
 		tf.summary.scalar('train_accuracy', accuracy, collections=['train'])
@@ -297,7 +295,7 @@ init = tf.global_variables_initializer()
 #saver = tf.train.Saver()
 tmp_config = tf.ConfigProto(
     gpu_options=tf.GPUOptions(
-        visible_device_list="0",
+        visible_device_list="1",
 		allow_growth=True
     )
 )

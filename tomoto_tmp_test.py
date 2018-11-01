@@ -1,5 +1,4 @@
 #tomato only
-#tomato内で分割
 
 import tensorflow as tf
 import numpy as np
@@ -22,6 +21,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--load_model", action='store_true', help="test is do --load_model")
 parser.add_argument("--load_model_path", default=None, help="path for checkpoint")
 parser.add_argument("--augm", action='store_true', help="augmentation is do")
+parser.add_argument("--val", action='store_true', help="validation is do")
 parser.add_argument("--save_dir", help="path for save the model and logs") 
 parser.add_argument("--batch_size", type=int, default=32, help="batch size")
 parser.add_argument("--epoch", type=int, help="epoch")
@@ -30,6 +30,7 @@ parser.add_argument("--dropout", type=float, default=0.5, help="dropout_rate. te
 parser.add_argument("--nclass", type=int)
 parser.add_argument("--model", help="inception, resnet")
 parser.add_argument("--gpu_config", default=0, help="0:gpu0, 1:gpu1, -1:both")
+parser.add_argument("--gpu", default=1)
 
 a = parser.parse_args()
 for k, v in a._get_kwargs():
@@ -112,16 +113,15 @@ with tf.name_scope('LoadImage'):
 	label = tf.one_hot(label, depth=n_classes)
 	label = tf.cast(label, dtype=tf.float32)
 	label_batch, x_batch = tf.train.batch([label, image],batch_size=a.batch_size, allow_smaller_final_batch=False)
-	
-	#val
-	#test_csv_name = "/home/zhaoyin-t/plant_disease/testdata_int_disease.csv"	
-	test_csv_name = "/home/zhaoyin-t/plant_disease/tomato_df_test_random.csv"
+
+	t est_csv_name = "/home/zhaoyin-t/plant_disease/tomato_test_only_tomato.csv"
+	#test_csv_name = "/home/zhaoyin-t/plant_disease/nontomato_test_rm_h.csv"
 	test_filename_queue = tf.train.string_input_producer([test_csv_name], shuffle=True)
 	test_reader = tf.TextLineReader()
 	_, test_val = test_reader.read(test_filename_queue)
-	#record_defaults = [["a"], ["a"], ["a"], [0], [0]]
+	#record_defaults = [["a"], ["a"], ["a"], [0], ["a"], [0]]
 	record_defaults = [["a"], ["a"], [0], ["a"], [0], [0]]
-	#_, test_path, _, test_label, _ = tf.decode_csv(test_val, record_defaults=record_defaults)
+	#_, test_path, _, _, _, test_label= tf.decode_csv(test_val, record_defaults=record_defaults)
 	test_path, _, _, _, test_label, _ = tf.decode_csv(test_val, record_defaults=record_defaults)
 	test_readfile = tf.read_file(test_path)
 	test_image = tf.image.decode_jpeg(test_readfile, channels=3)
@@ -129,23 +129,7 @@ with tf.name_scope('LoadImage'):
 	test_image = tf.cast(test_image, dtype=np.float32)
 	test_image = tf.image.resize_images(test_image, (model_size, model_size))
 	test_label = tf.one_hot(test_label, depth=n_classes)
-	test_label_batch, test_x_batch = tf.train.batch([test_label, test_image],batch_size=a.batch_size, allow_smaller_final_batch=False)
-	
-	test2_csv_name = "/home/zhaoyin-t/plant_disease/tomato_test.csv"
-	test2_filename_queue = tf.train.string_input_producer([test2_csv_name], shuffle=True)
-	test2_reader = tf.TextLineReader()
-	_, test2_val = test_reader.read(test2_filename_queue)
-	#record_defaults = [["a"], ["a"], ["a"], [0], [0]]
-	record_defaults = [["a"], ["a"], ["a"], [0], ["a"], [0]]
-	#_, test_path, _, test_label, _ = tf.decode_csv(test_val, record_defaults=record_defaults)
-	test2_path, _, _, _, _, test2_label= tf.decode_csv(test2_val, record_defaults=record_defaults)
-	test2_readfile = tf.read_file(test2_path)
-	test2_image = tf.image.decode_jpeg(test2_readfile, channels=3)
-	test2_image = tf.image.convert_image_dtype(test2_image, dtype=tf.float32)
-	test2_image = tf.cast(test2_image, dtype=np.float32)
-	test2_image = tf.image.resize_images(test2_image, (model_size, model_size))
-	test2_label = tf.one_hot(test2_label, depth=n_classes)
-	test2_label_batch, test2_x_batch = tf.train.batch([test2_label, test2_image],batch_size=a.batch_size, allow_smaller_final_batch=False)
+	test_label_batch, test_x_batch = tf.train.batch([test_label, test_image],batch_size=84)
 
 #---------------Model--#---------------#
 #data = tf.placeholder(tf.float32, [None, model_size, model_size, 3])
@@ -153,13 +137,12 @@ with tf.name_scope('LoadImage'):
 #dropout = tf.placeholder(tf.float32)
 
 am_training = tf.placeholder(dtype=bool,shape=())
-am_val = tf.placeholder(dtype=bool,shape=())
 #img_pl = tf.placeholder(tf.float32, [None, model_size, model_size, 3])
 #label_pl = tf.placeholder(tf.float32, [None, n_classes])
-test_data = tf.cond(am_val, lambda:test_x_batch, lambda: test2_x_batch)
-test_label = tf.cond(am_val, lambda:test_label_batch, lambda: test2_label_batch)
-data = tf.cond(am_training, lambda:x_batch, lambda:test_data)
-label = tf.cond(am_training, lambda:label_batch, lambda:test_label)
+data = tf.cond(am_training, lambda:x_batch, lambda:test_x_batch)
+#data = x_batch
+label = tf.cond(am_training, lambda:label_batch, lambda:test_label_batch)
+#label = label_batch
 drop = tf.placeholder(tf.float32)
 
 tmp_img = np.ndarray(shape=(1,model_size,model_size,3), dtype=float)
@@ -259,8 +242,9 @@ init = tf.global_variables_initializer()
 #saver = tf.train.Saver()
 tmp_config = tf.ConfigProto(
     gpu_options=tf.GPUOptions(
-        visible_device_list="1",
-		allow_growth=True
+        visible_device_list="0",
+		allow_growth = True
+
     )
 )
 
@@ -284,22 +268,21 @@ with tf.Session(config=tmp_config) as sess:
 		placeholders = [ op for op in graph.get_operations() if op.type == "Placeholder"]
 		print("placeholder", placeholders)
 		for step in range(iteration_num):
-			sess.run(train_op, feed_dict={am_training:True, am_val:True, drop:a.dropout})
+			sess.run(train_op, feed_dict={am_training: True ,drop:a.dropout})
 			if step % a.print_loss_freq == 0:
 				print(step)
-				train_acc = sess.run(accuracy, feed_dict={am_training:True, am_val:True, label_pl:tmp_label, drop: 0.0})
+				train_acc = sess.run(accuracy, feed_dict={am_training: True, drop: 0.0})
 				print("train accuracy", train_acc)
-				summary_writer.add_summary(sess.run(merged, feed_dict={am_training:True, am_val: True, drop: 0.0}), step)
+				summary_writer.add_summary(sess.run(merged, feed_dict={am_training: True, drop: 0.0}), step)
 		
-				#val
+				#test
 				test_acc = 0
 				test_num = pd.read_csv(test_csv_name, header=None).shape[0]
 				step_num = -(-test_num//a.batch_size)
+				print("step_num", step_num)
 				for i in range(step_num):
 					print(i)
-					imgs = sess.run(test_x_batch)
-					labels = sess.run(test_label_batch)
-					tmp_acc = sess.run(accuracy, feed_dict={am_training: False, am_val: True, img_pl: imgs, drop: 0.0})
+					tmp_acc = sess.run(accuracy, feed_dict={am_training: False, drop: 0.0})
 					print(tmp_acc)
 					test_acc += tmp_acc
 				test_acc = test_acc / step_num
@@ -307,57 +290,30 @@ with tf.Session(config=tmp_config) as sess:
 				tf.Summary.Value(tag="test_summary/test_accuracy", simple_value=test_acc)]), step)
 				print("test accuracy", test_acc)
 				print()
-
-				#test
-				test2_acc = 0
-				test_num = pd.read_csv(test2_csv_name, header=None).shape[0]
-				step_num = -(-test2_num//a.batch_size)
-				for i in range(step_num):
-					print(i)
-					imgs = sess.run(test_x_batch)
-					labels = sess.run(test_label_batch)
-					tmp_acc = sess.run(accuracy, feed_dict={am_training: False, am_val: True, drop: 0.0})
+				"""	
+				tmp_acc = 0
+				csv = pd.read_csv("tomato_test.csv", header=None)
+				num = csv.shape[0]
+				for i in range(num):
+					print(csv.iloc[i])
+					img = cv2.imread(csv.iloc[i,1])	
+					print(img.shape)
+					img = img//255.0
+					img = np.resize(img, [1, model_size, model_size, 3])
+					print(img.shape)
+					label = csv.iloc[i,5]
+					#logits = sess.graph.get_tensor_by_name("model/output:0")
+					#logits = sess.run(logits, feed_dict={am_testing:True, test_img:img, test_label:label, drop:0.0})
+					print(logits.shape)
+					lo = model(img)
+					tmp_acc += sess.run(Accuracy(lo, label))
 					print(tmp_acc)
-					test2_acc += tmp_acc
-				test2_acc = test_acc / step_num
+				test_acc2 = test_acc / num
 				summary_writer.add_summary(tf.Summary(value=[
-				tf.Summary.Value(tag="test_summary/test_accuracy", simple_value=test2_acc)]), step)
-				print("test2 accuracy", test2_acc)
+				tf.Summary.Value(tag="test_summary/test2_accuracy", simple_value=test_acc2)]), step)
+				print("test2 accuracy", test_acc2)
 				print()
-
 				"""
-				if train_acc == 1.0:
-					print("finish training bcz 1.0")
-					
-					csv_file = pd.read_csv(csv_name, header=None)
-					print(csv_file.shape) 
-					for i in range(csv_file.shape[0]):
-					#for i in range(1):
-						tmp_file = csv_file.iloc[i,:]
-           				#img = np.array([cv2.imread(im) for im in tmp_file[0]])
-						img = cv2.imread(tmp_file[0])
-						print("img shape", img.shape)
-						img = np.resize(img, [1, model_size, model_size, 3])
-						img = img/255.0
-						print("img shape", img.shape)
-						print("max", np.max(img))
-						logits = model(img)
-						label = tmp_file[4]
-						pred_class = sess.run(tf.argmax(logits,1))
-						#pred_class = [tmp_file[4]]
-						print("pred class", pred_class)
-           	 			#img_cam = gradcam(img, pred_class, model_size,sess, {"module/hub_input/images:0": x_batch})
-            			#img_cam = Grad_Cam(img, pred_class, n_classes, model_size)
-						img_cam = grad_cam(img, sess, pred_class[0], n_classes, model_size)
-						print("name", tmp_file[0])
-						name = str(i)+"_"+str(label)
-						cv2.imwrite("/home/zhaoyin-t/plant_disease/binary_img2/"+name+".jpg", img_cam)
-            			#cv2.imwrite("/home/zhaoyin-t/plant_disease/binary_img/test.jpg", img_cam2)
-						print(i)
-					print("finish")
-					break
-				"""
-
 			if step % (iteration_num/5) == 0:
         	   	# SAVE
 				saver.save(sess, a.save_dir + "/model/model.ckpt")
@@ -375,10 +331,11 @@ with tf.Session(config=tmp_config) as sess:
 		tmp_acc = 0
 		csv = pd.read_csv("tomato_test.csv", header=None)
 		num = csv.shape[0]
+		#step_num = -(-num//a.batch_size)
 		for i in range(num):
 			print(csv.iloc[i,1])
-			img = cv2.imread(csv.iloc[i,1])
-			print(img.shape)
+			img_bgr = cv2.imread(csv.iloc[i,1])
+			img = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
 			img = img//255.0
 			img = np.resize(img, [1, model_size, model_size, 3])
 			print(img.shape)
