@@ -14,8 +14,6 @@ import sys
 import random 
 import cv2
 
-np.set_printoptions(threshold=np.inf)
-
 parser = argparse.ArgumentParser()
 parser.add_argument("--load_model", action='store_true', help="test is do --load_model")
 parser.add_argument("--load_model_path", default=None, help="path for checkpoint")
@@ -23,7 +21,7 @@ parser.add_argument("--augm", action='store_true', help="augmentation is do")
 parser.add_argument("--save_dir", help="path for save the model and logs") 
 parser.add_argument("--batch_size", type=int, default=32, help="batch size")
 parser.add_argument("--epoch", type=int, help="epoch")
-parser.add_argument("--print_loss_freq", type=int, default=500, help="print loss epoch frequency")
+parser.add_argument("--print_loss_freq", type=int, default=50, help="print loss epoch frequency")
 parser.add_argument("--dropout", type=float, default=0.5, help="dropout_rate. test: 0.0, train=0.2")
 parser.add_argument("--nclass", type=int)
 parser.add_argument("--model", help="inception, resnet")
@@ -55,7 +53,7 @@ print("start time : " + str(start_time))
 csv_name = 'tomato_df_train_random.csv'
 csv = pd.read_csv(csv_name, header=None)
 #test_csv_name = 'tomato_test_only_tomato.csv'
-test_csv_name = 'tomato_df_test_random.csv'
+test_csv_name = "tomato_test_only_tomato.csv"
 test_csv = pd.read_csv(test_csv_name, header=None)
 #path col=0 
 #label col=4
@@ -67,6 +65,8 @@ seedd = 1141919
 data = tf.placeholder(tf.float32, [None, model_size, model_size, 3])
 label = tf.placeholder(tf.float32, [None, n_class])
 drop = tf.placeholder(tf.float32)
+
+data_resize = tf.image.resize_images(data, [model_size, model_size]) 
 
 #function
 def ransu(k):
@@ -88,7 +88,7 @@ def afine(img, k=50):
 	pts2 = np.float32([lt,lb,rt,rb])
 
 	M = cv2.getPerspectiveTransform(pts1,pts2)
-	dst = cv2.warpPerspective(im,M,(256,256))
+	dst = cv2.warpPerspective(img,M,(256,256))
 	return dst
 
 def moment(matrix):
@@ -141,35 +141,26 @@ def overlay(foreground, background):
     
 	return outImage
 
-iamgenet = glob.glob("/home/zhaoyin-t/imagenet/*")
+imagenet = glob.glob("/home/zhaoyin-t/imagenet/*")
 print("imagenet", imagenet[0], len(imagenet))
 
-def np_loader(csv, idxs):
-	#csv is already read
-	imgs = []
-	labels = []
-	for idx in idxs:
-		img = cv2.imread(csv.iloc[idx,0])
-		img = cv2.cvtColor(img,cv2.COLOR_BGR2RGB)
+def gousei(img_path):
+	img = cv2.imread(img_path)
+	img = cv2.cvtColor(img,cv2.COLOR_BGR2RGB)
 
-		#合成
-		img = afine(img)
-		center = moment(img)
-		vv = random.uniform(0.8,1.0)
-		rot_img = rotation(img, moment(img), ransu(360.0), vv)
-		
-		back_img = imagenet(ransu(imagenet))
-		back = cv2.imread(back_img)
-		back = cv2.cvtColor(back,cv2.COLOR_BGR2RGB)
-		outImage = overlay(rot_img, back)
-		outImage = cv2.resize(outImage, (a.model_size, a.model_size))
-		#outImage = (outImage - np.mean(outImage))/np.std(outImage)*16+64
-
-		imgs.append(outImage.flatten().astype(np.float32)/255.0)
-		tmp = np.zeros(NUM_CLASSES)
-		tmp[int(csv.iloc[idex,4])] = 1
-	    labels.append(tmp)
-	return imgs, labels
+	#合成
+	img = afine(img)
+	center = moment(img)
+	vv = random.uniform(0.8,1.0)
+	rot_img = rotation(img, moment(img), ransu(360.0), vv)
+	
+	back_img = imagenet[ransu(len(imagenet))]
+	back = cv2.imread(back_img)
+	back = cv2.cvtColor(back,cv2.COLOR_BGR2RGB)
+	outImage = overlay(rot_img, back)
+	outImage = cv2.resize(outImage, (model_size, model_size))
+	#outImage = (outImage - np.mean(outImage))/np.std(outImage)*16+64
+	return outImage
 
 #--------------Model-----------------#
 #QQQ
@@ -183,7 +174,7 @@ def model(data):
 
 with tf.name_scope('model'):
 	with tf.variable_scope('model', reuse=tf.AUTO_REUSE):
-		y = model(data)
+		y = model(data_resize)
 	
 #--------------Loss&Opt-----------------#
 with tf.name_scope("cost"):
@@ -208,8 +199,6 @@ with tf.name_scope("accuracy"):
 with tf.name_scope('summary'):
 	with tf.name_scope('image_summary'):
 		tf.summary.image('image', tf.image.convert_image_dtype(data, dtype=tf.uint8, saturate=True), collections=['train'])
-		tf.summary.image('image2', data, collections=['train'])
-		tf.summary.image('image3', tf.image.convert_image_dtype(data*255.0, dtype=tf.uint8, saturate=True), collections=['train'])
 
 	with tf.name_scope("train_summary"):
 		cost_summary_train = tf.summary.scalar('train_loss', cost, collections=['train'])
@@ -259,10 +248,13 @@ with tf.Session(config=tmp_config) as sess:
 			random.shuffle(csv_idx)
 			for i in range(sample_size//a.batch_size):
 				batch_idx = csv_idx[(i*a.batch_size):((i+1)*a.batch_size)]
-				trains = np_loader(csv, batch_idx)
-				train_imgs = trains[0]
-				train_labels = trains[1]
-
+				batch_csv = csv.iloc[batch_idx,:]
+				train_imgs = np.array([gousei(im) for im in batch_csv[0]])
+				train_imgs = train_imgs.astype(np.float64)/255.0
+				aa = csv[4]
+				aa_label = np.identity(n_class)[aa]
+				train_labels = aa_label[batch_idx]
+			
 				sess.run(train_op, feed_dict={data:train_imgs, label:train_labels, drop:a.dropout})
 			
 				if step % a.print_loss_freq == 0:
@@ -270,18 +262,14 @@ with tf.Session(config=tmp_config) as sess:
 					train_acc = sess.run(accuracy, feed_dict={data:train_imgs, label:train_labels, drop:0.0})
 					print("train accuracy", train_acc)
 					summary_writer.add_summary(sess.run(merged, feed_dict={data:train_imgs, label:train_labels, drop:0.0}), step)
-				
-					step_num = -(-test_csv.shape[0]//a.batch_size)
-					tmp_acc = 0
-					for i in range(step_num):
-						test_batch_idx = random.sample(range(test_csv.shape[0]), a.batch_size)
-						batch_test_csv = test_csv.iloc[test_batch_idx,:]
-						tests = np_loader(batch_test_csv)
-						test_imgs = tests[0]
-						test_labels = tests[1]
+					
+					#test
+					test_imgs = np.array([gousei(im) for im in test_csv[1]])
+					test_imgs = test_imgs/255.0
+					bb = test_csv[5]
+					test_labels = np.identity(n_class)[bb]
 
-						tmp_acc += sess.run(accuracy, feed_dict={data:test_imgs, label:test_labels, drop:0.0})
-					test_acc = tmp_acc/step_num
+					test_acc = sess.run(accuracy, feed_dict={data:test_imgs, label:test_labels, drop:0.0})
 					print('test_acc', test_acc)
 					summary_writer.add_summary(tf.Summary(value=[
             	    tf.Summary.Value(tag="test_summary/test_accuracy", simple_value=test_acc)]), step)
@@ -290,6 +278,7 @@ with tf.Session(config=tmp_config) as sess:
       				# SAVE
 					saver.save(sess, a.save_dir + "/model/model.ckpt")
 				step += 1
+				print("step", step)
 		
 		saver.save(sess, a.save_dir + "/model/model.ckpt")
 		print('saved at '+ a.save_dir)

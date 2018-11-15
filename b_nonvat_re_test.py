@@ -143,9 +143,9 @@ def np_loader(csv, idxs):
 	for idx in idxs:
 		img = cv2.imread(csv.iloc[idx,0])
 		img = cv2.cvtColor(img,cv2.COLOR_BGR2RGB)
-		img = cv2.resize(img, (a.model_size, a.model_size))
-		images.append(img.flatten().astype(np.float32)/255.0)
-		tmp = np.zeros(NUM_CLASSES)
+		img = cv2.resize(img, (model_size, model_size))
+		images.append(img.astype(np.float32)/255.0)
+		tmp = np.zeros(n_class)
 		tmp[int(csv.iloc[idex,4])] = 1
 	    labels.append(tmp)
 	return imgs, labels

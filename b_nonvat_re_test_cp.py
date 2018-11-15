@@ -61,13 +61,132 @@ sample_size = csv.shape[0]
 n_class = len(np.unique(csv[4]))
 seedd = 1141919
 
-#placeholder
-data = tf.placeholder(tf.float32, [None, 256, 256, 3])
-label = tf.placeholder(tf.float32, [None, n_class])
+#function
+def ransu(k):
+	return np.random.randint(0, k)
+
+def ransu2(k):
+	return np.random.randint(-k, k)
+
+def afine(img, k=50):
+    #img = cv2.imread(img)
+    #img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+	rows,cols,ch = img.shape
+	pts1 = np.float32([[0,0],[0,256],[256,0],[256,256]])
+
+	lt = [ransu2(k), ransu2(k)]
+	rt = [256-ransu2(k), ransu2(k)]
+	lb = [ransu2(k), 256-ransu2(k)]
+	rb = [256-ransu2(k), 256-ransu2(k)]
+	pts2 = np.float32([lt,lb,rt,rb])
+
+	M = cv2.getPerspectiveTransform(pts1,pts2)
+	dst = cv2.warpPerspective(im,M,(256,256))
+	return dst
+
+def moment(matrix):
+	mask = np.zeros((256, 256))
+	for x in range(256):
+		for y in range(256):
+			if sum(matrix[x][y]) < 30:
+				mask[x][y] = np.array(0) 
+			else:
+				mask[x][y] = np.array(255) 
+	mu = cv2.moments(mask, False)
+	x,y= int(mu["m10"]/mu["m00"]) , int(mu["m01"]/mu["m00"])
+	return x,y
+
+def rotation(img, center, angle, scale):
+	center = tuple(np.array(center)+(ransu(30),ransu(30)))
+	rotation_matrix = cv2.getRotationMatrix2D(center, angle, scale)
+	img_dst = cv2.warpAffine(img, rotation_matrix, (256,256))
+	return img_dst
+
+def makemask(matrix):
+	mask = np.zeros((256, 256, 3))
+	for x in range(256):
+		for y in range(256):
+			if sum(matrix[x][y]) < 30:
+				mask[x][y] = np.array([0, 0, 0]) # Black pixel if no object
+			else:
+				mask[x][y] = np.array([255, 255, 255]) 
+	return mask
+
+def overlay(foreground, background):
+    # Convert uint8 to float
+	foreground = foreground.astype(float)
+	background = background.astype(float)
+    
+	mask = makemask(foreground)
+ 
+    # Normalize the alpha mask to keep intensity between 0 and 1
+	mask = mask.astype(float)/255
+ 
+    # Multiply the foreground with the alpha matte
+	foreground = cv2.multiply(mask, foreground)
+ 
+    # Multiply the background with ( 1 - alpha )
+	background = cv2.multiply((1-mask), background)
+
+    # Add the masked foreground and background.
+	outImage = cv2.add(foreground, background)
+	outImage = outImage.astype('uint8')
+    
+	return outImage
+
+def np_loader(csv, idxs):
+	#csv is already read
+	imgs = []
+	labels = []
+	for idx in idxs:
+		img = cv2.imread(csv.iloc[idx,0])
+		img = cv2.cvtColor(img,cv2.COLOR_BGR2RGB)
+		img = cv2.resize(img, (model_size, model_size))
+		images.append(img.astype(np.float32)/255.0)
+		tmp = np.zeros(n_class)
+		tmp[int(csv.iloc[idex,4])] = 1
+		labels.append(tmp)
+	return imgs, labels
+
+
+#--------------ImageLoad-----------------#
+with tf.name_scope('LoadImage'):
+	filename_queue = tf.train.string_input_producer([csv_name], shuffle=True)
+	reader = tf.TextLineReader()
+	_, val = reader.read(filename_queue)
+	record_defaults = [["a"], ["a"], [0], ["a"], [0], [0]]
+	path, _, _, _, label, _ = tf.decode_csv(val, record_defaults=record_defaults)
+	readfile = tf.read_file(path)
+	image = tf.image.decode_jpeg(readfile, channels=3)
+	image = tf.image.convert_image_dtype(image, dtype=tf.float32)
+	image = tf.cast(image, dtype=np.float32)
+	image = tf.image.resize_images(image, (model_size, model_size))
+	label = tf.one_hot(label, depth=n_class)
+	label_batch, x_batch = tf.train.batch([label, image],batch_size=a.batch_size, allow_smaller_final_batch=False)
+	label_batch = tf.cast(label_batch, dtype=np.float32)
+
+	test_filename_queue = tf.train.string_input_producer([test_csv_name], shuffle=False)
+	test_reader = tf.TextLineReader()
+	_, test_val = test_reader.read(test_filename_queue)
+	record_defaults = [["a"], ["a"], [0], ["a"], [0], [0]]
+	test_path, _, _, _, test_label, _ = tf.decode_csv(test_val, record_defaults=record_defaults)
+	test_readfile = tf.read_file(test_path)
+	test_image = tf.image.decode_jpeg(test_readfile, channels=3)
+	test_image = tf.image.convert_image_dtype(test_image, dtype=tf.float32)
+	test_image = tf.cast(test_image, dtype=np.float32)
+	test_image = tf.image.resize_images(test_image, (model_size, model_size))
+	test_label = tf.one_hot(test_label, depth=n_class)
+	test_label_batch, test_x_batch = tf.train.batch([test_label, test_image],batch_size=a.batch_size, allow_smaller_final_batch=False)
+	test_label_batch = tf.cast(test_label_batch, dtype=np.float32)
+
+am_testing = tf.placeholder(dtype=bool,shape=())
+#data = tf.cond(am_testing, lambda:test_x_batch, lambda:x_batch)
+label = tf.cond(am_testing, lambda:test_label_batch, lambda:label_batch)
+#drop = tf.placeholder(tf.float32)
+data = tf.placeholder(tf.float32, [None, model_size, model_size, 3])
+#label = tf.placeholder(tf.float32, [None, n_class])
 drop = tf.placeholder(tf.float32)
 
-data_resize = tf.image.resize_images(data, [model_size, model_size])
-print("data", data_resize)
 #--------------Model-----------------#
 #QQQ
 #with tf.variable_scope('def_model', reuse=tf.AUTO_REUSE)
@@ -80,7 +199,7 @@ def model(data):
 
 with tf.name_scope('model'):
 	with tf.variable_scope('model', reuse=tf.AUTO_REUSE):
-		y = model(data_resize)
+		y = model(data)
 	
 #--------------Loss&Opt-----------------#
 with tf.name_scope("cost"):
@@ -105,6 +224,8 @@ with tf.name_scope("accuracy"):
 with tf.name_scope('summary'):
 	with tf.name_scope('image_summary'):
 		tf.summary.image('image', tf.image.convert_image_dtype(data, dtype=tf.uint8, saturate=True), collections=['train'])
+		tf.summary.image('image2', data, collections=['train'])
+		tf.summary.image('image3', tf.image.convert_image_dtype(data*255.0, dtype=tf.uint8, saturate=True), collections=['train'])
 
 	with tf.name_scope("train_summary"):
 		cost_summary_train = tf.summary.scalar('train_loss', cost, collections=['train'])
@@ -148,61 +269,29 @@ with tf.Session(config=tmp_config) as sess:
 		graph = tf.get_default_graph()
 		placeholders = [ op for op in graph.get_operations() if op.type == "Placeholder"]
 		print("placeholder", placeholders)
+		coord = tf.train.Coordinator()
+		threads = tf.train.start_queue_runners(sess=sess, coord=coord)
 		step = 0
 		for epo in range(a.epoch):
-			csv_idx = list(range(sample_size))
-			random.shuffle(csv_idx)
 			for i in range(sample_size//a.batch_size):
-				#print(i)
-				batch_idx = csv_idx[(i*a.batch_size):((i+1)*a.batch_size)]
-				#if i==258:
-				#	print(batch_idx)
-				batch_csv = csv.iloc[batch_idx,:]
-				#if path col == 0
-				train_imgs = np.array([cv2.cvtColor(cv2.imread(im),cv2.COLOR_BGR2RGB) for im in batch_csv[0]])
-				train_imgs = train_imgs.astype(np.float64)/255.0
-				aa = csv[4]
-				aa_label = np.identity(n_class)[aa]
-				train_labels = aa_label[batch_idx]
-				sess.run(train_op, feed_dict={data:train_imgs, label:train_labels, drop:a.dropout})
+
+				train_imgs = np.array(x_batch.eval(), dtype="float32")
+				train_imgs = np.array([train_imgs[i] for i in range(train_imgs.shape[0])])
+				#train_labels = label_batch.eval()
+				sess.run(train_op, feed_dict={data: train_imgs, am_testing: False, drop:a.dropout})
 			
 				if step % a.print_loss_freq == 0:
 					print(step)
-					train_acc = sess.run(accuracy, feed_dict={data:train_imgs, label:train_labels, drop:0.0})
+					train_acc = sess.run(accuracy, feed_dict={data: train_imgs, am_testing: False, drop:0.0})
 					print("train accuracy", train_acc)
-					summary_writer.add_summary(sess.run(merged, feed_dict={data:train_imgs, label:train_labels, drop:0.0}), step)
-					'''	
-					#test
-					#if path col is 1 
-					test_imgs = np.array([cv2.imread(im) for im in test_csv[1]])
-					#print('max test imgs', np.max(test_imgs))
-					test_imgs = test_imgs/255.0
-					test_imgs = np.resize(test_imgs, [test_csv.shape[0], model_size, model_size, 3])
-					#if label col is 5
-					bb = test_csv[5] 
-					test_labels = np.identity(n_class)[bb]
-					test_acc = sess.run(accuracy, feed_dict={data:test_imgs, label:test_labels, drop:0.0})
-					print('test accuracy', test_acc)
-					summary_writer.add_summary(tf.Summary(value=[
-					tf.Summary.Value(tag="test_summary/test_accuracy", simple_value=test_acc)]), step)
-					print()
-					'''
+					summary_writer.add_summary(sess.run(merged, feed_dict={data: train_imgs, am_testing: False, drop:0.0}), step)
 				
 					step_num = -(-test_csv.shape[0]//a.batch_size)
 					tmp_acc = 0
 					for i in range(step_num):
-						test_batch_idx = random.sample(range(test_csv.shape[0]), a.batch_size)
-						batch_test_csv = test_csv.iloc[test_batch_idx,:]
-						test_imgs = np.array([cv2.cvtColor(cv2.imread(im),cv2.COLOR_BGR2RGB) for im in batch_test_csv[0]],dtype="float32")
-						test_imgs = test_imgs.astype(np.float64)/255.0
-						#test_imgs = np.resize(test_imgs, [a.batch_size, model_size, model_size, 3])
-						#test_imgs_list = [test_imgs[i] for i in range(test_imgs.shape[0])]
-
-						#if label col == 4
-						cc = test_csv[4]
-						cc_label = np.identity(n_class)[cc]
-						test_labels = cc_label[test_batch_idx]
-						tmp_acc += sess.run(accuracy, feed_dict={data:test_imgs, label:test_labels, drop:0.0})
+						test_imgs = test_x_batch.eval()
+						test_labels = test_label_batch.eval()
+						tmp_acc += sess.run(accuracy, feed_dict={data: test_imgs, am_testing: True, drop:0.0})
 					test_acc = tmp_acc/step_num
 					print('test_acc', test_acc)
 					summary_writer.add_summary(tf.Summary(value=[

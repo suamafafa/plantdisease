@@ -148,11 +148,11 @@ def np_loader(csv, idxs):
 	for idx in idxs:
 		img = cv2.imread(csv.iloc[idx,0])
 		img = cv2.cvtColor(img,cv2.COLOR_BGR2RGB)
-		img = cv2.resize(img, (a.model_size, a.model_size))
-		images.append(img.flatten().astype(np.float32)/255.0)
-		tmp = np.zeros(NUM_CLASSES)
-		tmp[int(csv.iloc[idex,4])] = 1
-	    labels.append(tmp)
+		img = cv2.resize(img, (model_size, model_size))
+		imgs.append(img.astype(np.float32)/255.0)
+		tmp = np.zeros(n_class)
+		tmp[int(csv.iloc[idx,4])] = 1
+		labels.append(tmp)
 	return imgs, labels
 
 #--------------Model-----------------#
@@ -260,7 +260,7 @@ with tf.Session(config=tmp_config) as sess:
 					for i in range(step_num):
 						test_batch_idx = random.sample(range(test_csv.shape[0]), a.batch_size)
 						batch_test_csv = test_csv.iloc[test_batch_idx,:]
-						tests = np_loader(batch_test_csv)
+						tests = np_loader(test_csv,batch_test_csv)
 						test_imgs = tests[0]
 						test_labels = tests[1]
 

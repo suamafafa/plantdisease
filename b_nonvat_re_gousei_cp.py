@@ -46,28 +46,126 @@ if a.gpu_config == '0':
 elif a.gpu_config == '1':
     config = tf.ConfigProto(gpu_options=tf.GPUOptions(allow_growth=True, visible_device_list='1'))
 
-start_time = time.time()
-print("start time : " + str(start_time))
-
 #params 
 csv_name = 'tomato_df_train_random.csv'
 csv = pd.read_csv(csv_name, header=None)
 #test_csv_name = 'tomato_test_only_tomato.csv'
-test_csv_name = 'tomato_df_test_random.csv'
+test_csv_name = "tomato_test_only_tomato.csv"
 test_csv = pd.read_csv(test_csv_name, header=None)
 #path col=0 
 #label col=4
 sample_size = csv.shape[0]
 n_class = len(np.unique(csv[4]))
 seedd = 1141919
+iteration_num = int(sample_size/a.epoch*a.batch_size)
+data_np = np.load("train.npy")
+label_np = np.load("label.npy")
+
+start_time = time.time()
+print("start time : " + str(start_time))
 
 #placeholder
-data = tf.placeholder(tf.float32, [None, 256, 256, 3])
+data = tf.placeholder(tf.float32, [None, model_size, model_size, 3])
 label = tf.placeholder(tf.float32, [None, n_class])
 drop = tf.placeholder(tf.float32)
 
-data_resize = tf.image.resize_images(data, [model_size, model_size])
-print("data", data_resize)
+data_resize = tf.image.resize_images(data, [model_size, model_size]) 
+
+#function
+def ransu(k):
+	return np.random.randint(0, k)
+
+def ransu2(k):
+	return np.random.randint(-k, k)
+
+def afine(img, k=50):
+    #img = cv2.imread(img)
+    #img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+	rows,cols,ch = img.shape
+	pts1 = np.float32([[0,0],[0,256],[256,0],[256,256]])
+
+	lt = [ransu2(k), ransu2(k)]
+	rt = [256-ransu2(k), ransu2(k)]
+	lb = [ransu2(k), 256-ransu2(k)]
+	rb = [256-ransu2(k), 256-ransu2(k)]
+	pts2 = np.float32([lt,lb,rt,rb])
+
+	M = cv2.getPerspectiveTransform(pts1,pts2)
+	dst = cv2.warpPerspective(img,M,(256,256))
+	return dst
+
+def moment(matrix):
+	mask = np.zeros((256, 256))
+	for x in range(256):
+		for y in range(256):
+			if sum(matrix[x][y]) < 30:
+				mask[x][y] = np.array(0) 
+			else:
+				mask[x][y] = np.array(255) 
+	mu = cv2.moments(mask, False)
+	x,y= int(mu["m10"]/mu["m00"]) , int(mu["m01"]/mu["m00"])
+	return x,y
+
+def rotation(img, center, angle, scale):
+	center = tuple(np.array(center)+(ransu(30),ransu(30)))
+	rotation_matrix = cv2.getRotationMatrix2D(center, angle, scale)
+	img_dst = cv2.warpAffine(img, rotation_matrix, (256,256))
+	return img_dst
+
+def makemask(matrix):
+	mask = np.zeros((256, 256, 3))
+	for x in range(256):
+		for y in range(256):
+			if sum(matrix[x][y]) < 30:
+				mask[x][y] = np.array([0, 0, 0]) # Black pixel if no object
+			else:
+				mask[x][y] = np.array([255, 255, 255]) 
+	return mask
+
+def overlay(foreground, background):
+    # Convert uint8 to float
+	foreground = foreground.astype(float)
+	background = background.astype(float)
+    
+	mask = makemask(foreground)
+ 
+    # Normalize the alpha mask to keep intensity between 0 and 1
+	mask = mask.astype(float)/255
+ 
+    # Multiply the foreground with the alpha matte
+	foreground = cv2.multiply(mask, foreground)
+ 
+    # Multiply the background with ( 1 - alpha )
+	background = cv2.multiply((1-mask), background)
+
+    # Add the masked foreground and background.
+	outImage = cv2.add(foreground, background)
+	outImage = outImage.astype('uint8')
+    
+	return outImage
+
+imagenet = glob.glob("/home/zhaoyin-t/imagenet/*")
+print("imagenet", imagenet[0], len(imagenet))
+
+def gousei(img):
+	#img = cv2.imread(img_path)
+	#img = cv2.cvtColor(img,cv2.COLOR_BGR2RGB)
+
+	#合成
+	img = afine(img)
+	center = moment(img)
+	vv = random.uniform(0.8,1.0)
+	rot_img = rotation(img, moment(img), ransu(360.0), vv)
+	
+	back_img = imagenet[ransu(len(imagenet))]
+	back = cv2.imread(back_img)
+	back = cv2.cvtColor(back,cv2.COLOR_BGR2RGB)
+	outImage = overlay(rot_img, back)
+	outImage = cv2.resize(outImage, (model_size, model_size))
+	#outImage = (outImage - np.mean(outImage))/np.std(outImage)*16+64
+	outImage = outImage/255.0
+	return outImage
+
 #--------------Model-----------------#
 #QQQ
 #with tf.variable_scope('def_model', reuse=tf.AUTO_REUSE)
@@ -149,69 +247,37 @@ with tf.Session(config=tmp_config) as sess:
 		placeholders = [ op for op in graph.get_operations() if op.type == "Placeholder"]
 		print("placeholder", placeholders)
 		step = 0
-		for epo in range(a.epoch):
-			csv_idx = list(range(sample_size))
-			random.shuffle(csv_idx)
-			for i in range(sample_size//a.batch_size):
-				#print(i)
-				batch_idx = csv_idx[(i*a.batch_size):((i+1)*a.batch_size)]
-				#if i==258:
-				#	print(batch_idx)
-				batch_csv = csv.iloc[batch_idx,:]
-				#if path col == 0
-				train_imgs = np.array([cv2.cvtColor(cv2.imread(im),cv2.COLOR_BGR2RGB) for im in batch_csv[0]])
-				train_imgs = train_imgs.astype(np.float64)/255.0
-				aa = csv[4]
-				aa_label = np.identity(n_class)[aa]
-				train_labels = aa_label[batch_idx]
-				sess.run(train_op, feed_dict={data:train_imgs, label:train_labels, drop:a.dropout})
+		for step in range(iteration_num):
+			l = list(range(len(label_np)))
+			idxs = random.sample(l, a.batch_size)
+			tmp_imgs = data_np[idxs]
+			train_imgs = [gousei(im) for im in tmp_imgs]
+			aa = label_np[idxs]
+			train_labels = np.identity(n_class)[aa]
+				
+			sess.run(train_op, feed_dict={data:train_imgs, label:train_labels, drop:a.dropout})
 			
-				if step % a.print_loss_freq == 0:
-					print(step)
-					train_acc = sess.run(accuracy, feed_dict={data:train_imgs, label:train_labels, drop:0.0})
-					print("train accuracy", train_acc)
-					summary_writer.add_summary(sess.run(merged, feed_dict={data:train_imgs, label:train_labels, drop:0.0}), step)
-					'''	
-					#test
-					#if path col is 1 
-					test_imgs = np.array([cv2.imread(im) for im in test_csv[1]])
-					#print('max test imgs', np.max(test_imgs))
-					test_imgs = test_imgs/255.0
-					test_imgs = np.resize(test_imgs, [test_csv.shape[0], model_size, model_size, 3])
-					#if label col is 5
-					bb = test_csv[5] 
-					test_labels = np.identity(n_class)[bb]
-					test_acc = sess.run(accuracy, feed_dict={data:test_imgs, label:test_labels, drop:0.0})
-					print('test accuracy', test_acc)
-					summary_writer.add_summary(tf.Summary(value=[
-					tf.Summary.Value(tag="test_summary/test_accuracy", simple_value=test_acc)]), step)
-					print()
-					'''
-				
-					step_num = -(-test_csv.shape[0]//a.batch_size)
-					tmp_acc = 0
-					for i in range(step_num):
-						test_batch_idx = random.sample(range(test_csv.shape[0]), a.batch_size)
-						batch_test_csv = test_csv.iloc[test_batch_idx,:]
-						test_imgs = np.array([cv2.cvtColor(cv2.imread(im),cv2.COLOR_BGR2RGB) for im in batch_test_csv[0]],dtype="float32")
-						test_imgs = test_imgs.astype(np.float64)/255.0
-						#test_imgs = np.resize(test_imgs, [a.batch_size, model_size, model_size, 3])
-						#test_imgs_list = [test_imgs[i] for i in range(test_imgs.shape[0])]
+			if step % a.print_loss_freq == 0:
+				print(step)
+				train_acc = sess.run(accuracy, feed_dict={data:train_imgs, label:train_labels, drop:0.0})
+				print("train accuracy", train_acc)
+				summary_writer.add_summary(sess.run(merged, feed_dict={data:train_imgs, label:train_labels, drop:0.0}), step)
+					
+				#test
+				test_tmp_imgs = np.array([cv2.cvtColor(cv2.imread(im),cv2.COLOR_BGR2RGB) for im in test_csv[1]])
+				test_imgs = [gousei(im) for im in test_tmp_imgs]
+				bb = test_csv[5]
+				test_labels = np.identity(n_class)[bb]
 
-						#if label col == 4
-						cc = test_csv[4]
-						cc_label = np.identity(n_class)[cc]
-						test_labels = cc_label[test_batch_idx]
-						tmp_acc += sess.run(accuracy, feed_dict={data:test_imgs, label:test_labels, drop:0.0})
-					test_acc = tmp_acc/step_num
-					print('test_acc', test_acc)
-					summary_writer.add_summary(tf.Summary(value=[
-            	    tf.Summary.Value(tag="test_summary/test_accuracy", simple_value=test_acc)]), step)
+				test_acc = sess.run(accuracy, feed_dict={data:test_imgs, label:test_labels, drop:0.0})
+				print('test_acc', test_acc)
+				summary_writer.add_summary(tf.Summary(value=[
+           	    tf.Summary.Value(tag="test_summary/test_accuracy", simple_value=test_acc)]), step)
 				
-				if step % 500 == 0:
-      				# SAVE
-					saver.save(sess, a.save_dir + "/model/model.ckpt")
-				step += 1
+			if step % 500 == 0:
+      			# SAVE
+				saver.save(sess, a.save_dir + "/model/model.ckpt")
+			print("step", step)
 		
 		saver.save(sess, a.save_dir + "/model/model.ckpt")
 		print('saved at '+ a.save_dir)
