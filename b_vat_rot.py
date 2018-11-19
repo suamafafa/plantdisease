@@ -150,14 +150,14 @@ def gousei(img):
 	myu = np.mean(img_flatten)
 	sig = np.std(img_flatten)
 	img = afine(img)
-	#center = moment(img)
-	#vv = random.uniform(0.8,1.0)
-	#rot_img = rotation(img, moment(img), ransu(360.0), vv)
+	center = moment(img)
+	vv = random.uniform(0.8,1.0)
+	rot_img = rotation(img, moment(img), ransu(360.0), vv)
 	
 	back_img = imagenet[ransu(len(imagenet))]
 	back = cv2.imread(back_img)
 	back = cv2.cvtColor(back,cv2.COLOR_BGR2RGB)
-	outImage = overlay(img, back)
+	outImage = overlay(rot_img, back)
 	#outImage = cv2.resize(outImage, (model_size, model_size))
 	outImage = (outImage - np.mean(outImage))/np.std(outImage)*myu+sig
 	return outImage
