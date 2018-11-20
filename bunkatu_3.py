@@ -124,7 +124,7 @@ with tf.name_scope('LoadImage'):
 	test_image = tf.image.decode_jpeg(test_readfile, channels=3)
 	test_image = tf.image.convert_image_dtype(test_image, dtype=tf.float32)
 	test_image = tf.cast(test_image, dtype=np.float32)
-	test_image = tf.image.resize_images(test_image, (model_size*3, model_size*3),method=tf.image.ResizeMethod.NEAREST_NEIGHBOR)
+	test_image = tf.image.resize_images(test_image, (256, 256),method=tf.image.ResizeMethod.NEAREST_NEIGHBOR)
 	#test_label = tf.one_hot(test_label, depth=n_class)
 	test_label_batch, test_x_batch = tf.train.batch([test_label, test_image],batch_size=a.batch_size, allow_smaller_final_batch=False)
 	test_label_batch = tf.cast(test_label_batch, dtype=np.float32)
@@ -149,10 +149,13 @@ def bunkatu(one_patch, size):
 				parts = tf.concat([parts,part], 0)
 	return parts
 """
+print(x_batch)
+print(test_x_batch)
+
 #add
 patch_size = 180
 stride = 30
-patch = tf.extract_image_patches(x_batch, ksizes=[1, patch_size, patch_size, 1], strides=[1,stride, stride, 1], rates=[1, 1, 1, 1], padding='VALID')
+patch = tf.extract_image_patches(data, ksizes=[1, patch_size, patch_size, 1], strides=[1,stride, stride, 1], rates=[1, 1, 1, 1], padding='VALID')
 print("batch shape", patch.shape)
 
 for i in range(patch.shape[0]):
@@ -199,7 +202,8 @@ with tf.name_scope("cost"):
 with tf.name_scope("opt"): 
 	#trainable_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, "trainable_section")
 	trainable_vars = [var for var in tf.trainable_variables()]
-	adam = tf.train.AdamOptimizer(0.0002,0.5)
+	#adam = tf.train.AdamOptimizer(0.0002,0.5)
+	adam = tf.train.AdamOptimizer(0.001,0.5)
 	gradients_vars = adam.compute_gradients(cost, var_list=trainable_vars)	
 	train_op = adam.apply_gradients(gradients_vars)
 
@@ -208,16 +212,74 @@ def Accuracy(y, label):
 	accuracy = tf.reduce_mean(tf.cast(correct_pred, tf.float32))
 	return accuracy
 
+def Accuracy2(y, label):
+	parts_split = tf.split(y, num_or_size_splits=a.batch_size)
+	label_split = tf.split(label, num_or_size_splits=a.batch_size)
+	num = np.array([])
+	for i, one_image_y in enumerate(parts_split):
+		y_ = tf.reshape(one_image_y, [-1])
+		pred = y_[tf.argmax(y_)]
+		answer = label_split[i][0]
+		correct_pred = tf.equal(pred, answer)
+		tmp_acc = tf.reduce_mean(tf.cast(correct_pred, tf.float32))
+		#num[i] = tmp_acc
+		num = np.append(num, tmp_acc)
+	accuracy = np.sum(num)/len(num)
+	return accuracy
+
+def Accuracy3(y, label):
+	parts_split = tf.split(y, num_or_size_splits=a.batch_size)
+	label_split = tf.split(label, num_or_size_splits=a.batch_size)
+	num = np.array([])
+	for i, one_image_y in enumerate(parts_split):	
+		y_ = tf.reshape(one_image_y, [-1])
+		pred = y_[tf.argmax(y_)]
+		answer = label_split[i][0]
+		correct_pred = tf.equal(pred, answer)
+		tmp_acc = tf.reduce_mean(tf.cast(correct_pred, tf.float32))
+		#num[i] = tmp_acc		
+		num = np.append(num, tmp_acc)
+	accuracy = np.sum(num)/len(num)
+	return accuracy
+
+def Test_y(y):
+	parts_split = tf.split(y, num_or_size_splits=a.batch_size)
+	num = np.array([])
+	for i, one_image_y in enumerate(parts_split):
+		y_ = tf.reshape(one_image_y, [-1])
+		pred = y_[tf.argmax(y_)]
+		num = np.append(num, pred)
+		num_ = tf.convert_to_tensor(num, np.float32)
+	return num_
+def Test_label(label):
+	label_split = tf.split(label, num_or_size_splits=a.batch_size)
+	num = np.array([])
+	for i in range(a.batch_size):
+		answer = label_split[i][0]
+		num = np.append(num, answer)
+		num_ = tf.convert_to_tensor(num, np.float32)
+		return num_
+
 with tf.name_scope("accuracy"):
 	accuracy = Accuracy(y, label)
+	#accuracy2 = Accuracy2(y, label)
 
 def Showy(y):
 	return tf.argmax(y,1)
 
 def Showlabel(label):
 	return tf.argmax(label,1)
+
+def Testshow(y):
+	y_ = tf.reshape(y, [-1])
+	return y_
+	#return tf.argmax(y_, 1)
+
 showy = Showy(y)
 showlabel = Showlabel(label)
+testshow = Testshow(y)
+#test_y = Test_y(y)
+#test_label = Test_label(label)
 
 #--------------Summary-----------------#
 with tf.name_scope('summary'):
@@ -280,9 +342,12 @@ with tf.Session(config=tmp_config) as sess:
 				step_num = -(-test_csv.shape[0]//a.batch_size)
 				tmp_acc = 0
 				for i in range(step_num):
-					tmp_acc += sess.run(accuracy, feed_dict={am_testing: True, drop:0.0})
+					#tmp_acc += sess.run(accuracy2, feed_dict={am_testing: True, drop:0.0})
 					print(sess.run(showy, feed_dict={am_testing:True, drop:0.0}))
 					print(sess.run(showlabel, feed_dict={am_testing:True, drop:0.0}))
+					print("")
+					#print(sess.run(test_y, feed_dict={am_testing:True, drop:0.0}))
+					#print(sess.run(test_label, feed_dict={am_testing:True, drop:0.0}))
 				test_acc = tmp_acc/step_num
 				print('test_acc', test_acc)
 				summary_writer.add_summary(tf.Summary(value=[tf.Summary.Value(tag="test_summary/test_accuracy", simple_value=test_acc)]), step)
