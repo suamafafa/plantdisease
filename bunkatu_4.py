@@ -175,12 +175,14 @@ parts = tf.image.resize_images(parts, (model_size, model_size))
 def zouhuku(item):
 	return tf.fill([patch.shape[1]*patch.shape[1]], item)
 
+label_original = label
 label = tf.map_fn(zouhuku, label)
 label = tf.reshape(label,[-1])
 label = tf.cast(label, dtype=np.int64)
 label = tf.one_hot(label, depth=n_class)
 label = tf.cast(label, dtype=np.float32)
 print("label", label)
+print("label original", label_original)
 #--------------Model-----------------#
 #QQQ
 with tf.variable_scope('def_model', reuse=tf.AUTO_REUSE):
@@ -212,28 +214,35 @@ def Accuracy(y, label):
 	accuracy = tf.reduce_mean(tf.cast(correct_pred, tf.float32))
 	return accuracy
 
-"""
+
 def Accuracy2(y, label):
-	parts_split = tf.split(y, num_or_size_splits=a.batch_size)
-	label_split = tf.split(label, num_or_size_splits=a.batch_size)
-	num = np.array([])
-	for i, one_image_y in enumerate(parts_split):
-		y_ = tf.reshape(one_image_y, [-1])
-		pred = y_[tf.argmax(y_)]
-		answer = label_split[i][0]
-		answer = tf.argmax(answer)
-		answer = tf.cast(answer, tf.float32)	
+	parts_split = tf.split(y, num_or_size_splits=a.batch_size) #1枚の画像にする
+	for j in range(len(parts_split)):
+		one_part = parts_split[j]
+		regions = tf.split(one_part, num_or_size_splits=one_part.shape[0]) #同一画像内の領域群
+		for i, region in enumerate(regions):
+			if i==0:
+				max = tf.reduce_max(region)
+				pred = tf.argmax(region, 1)
+			t = tf.greater(tf.reduce_max(region), max)
+			if t is not None:
+				pred = tf.argmax(region, 1)
+				pred = tf.cast(pred, tf.float32)
+		
+		#答え合わせ
+		answer = label_original[j]
 		correct_pred = tf.equal(pred, answer)
 		tmp_acc = tf.reduce_mean(tf.cast(correct_pred, tf.float32))
-		
-		if i==0:
+		if j==0:
 			acc = tmp_acc
 		else:
 			acc = tf.add(acc, tmp_acc)
-	accuracy = acc/a.batch_size
+
+	accuracy = acc/len(parts_split)
 	return accuracy
 
 
+"""
 def Accuracy3(y, label):
 	parts_split = tf.split(y, num_or_size_splits=a.batch_size)
 	label_split = tf.split(label, num_or_size_splits=a.batch_size)
@@ -274,7 +283,7 @@ def Test_label(label):
 
 with tf.name_scope("accuracy"):
 	accuracy = Accuracy(y, label)
-	#accuracy2 = Accuracy3(y, label)
+	accuracy2 = Accuracy2(y, label)
 
 def Showy(y):
 	return tf.argmax(y,1)
@@ -284,12 +293,13 @@ def Showlabel(label):
 
 def Testshow(y):
 	y_ = tf.reshape(y, [-1])
-	return y_
+	return y, y_
 	#return tf.argmax(y_, 1)
 
 showy = Showy(y)
 showlabel = Showlabel(label)
-testshow = Testshow(y)
+testshow = Testshow(y)[0]
+testshow2 = Testshow(y)[1]
 #test_y = Test_y(y)
 #test_label = Test_label(label)
 
@@ -354,7 +364,8 @@ with tf.Session(config=tmp_config) as sess:
 				step_num = -(-test_csv.shape[0]//a.batch_size)
 				tmp_acc = 0
 				for i in range(step_num):
-					tmp_acc += sess.run(accuracy, feed_dict={am_testing: True, drop:0.0})
+					tmp_acc += sess.run(accuracy2, feed_dict={am_testing: True, drop:0.0})
+					print("old acc", sess.run(accuracy, feed_dict={am_testing: True, drop:0.0}))
 					print(sess.run(showy, feed_dict={am_testing:True, drop:0.0}))
 					print(sess.run(showlabel, feed_dict={am_testing:True, drop:0.0}))
 					#print(sess.run(testshow, feed_dict={am_testing:True, drop:0.0}))
