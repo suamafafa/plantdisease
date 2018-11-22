@@ -51,7 +51,7 @@ csv_name = 'tomato_df_train_random_2_resize.csv'
 #csv_name = "tomoto_and_unclass.csv"
 csv = pd.read_csv(csv_name, header=None)
 #test_csv_name = 'tomato_test_only_tomato.csv'
-test_csv_name = 'tomato_test_only_tomato.csv'
+test_csv_name = 'tomato_test_only_tomato_original.csv'
 test_csv = pd.read_csv(test_csv_name, header=None)
 #path col=0 
 #label col=1
@@ -59,6 +59,19 @@ sample_size = csv.shape[0]
 n_class = len(np.unique(csv[1]))
 iteration_num = int(sample_size/a.batch_size*a.epoch)
 seed = 1141919
+
+def part(image, size, j, k):
+	print("******", image)
+	image = tf.expand_dims(image, 0)
+	print(image)
+	patch = tf.extract_image_patches(image, ksizes=[1, size, size, 1], strides=[1,30, 30, 1], rates=[1, 1, 1, 1], padding='VALID')
+	print(patch)
+	patch_ = patch[0,:,:,:]
+	print(patch_)
+	tmp = patch_[j,k,]
+	print(tmp)
+	part = tf.reshape(tmp, [size, size, 3])
+	return part
 
 #--------------ImageLoad-----------------#
 with tf.name_scope('LoadImage'):
@@ -72,26 +85,8 @@ with tf.name_scope('LoadImage'):
 	image = tf.image.convert_image_dtype(image, dtype=tf.float32)
 	image = tf.cast(image, dtype=np.float32)
 	image = tf.image.resize_images(image, (256, 256))
-
-	h, w, ch = 256, 256, _
-	print(image.get_shape())
-    # transform params
-	CROP_SIZE = int(h)
-	SCALE_SIZE = int(h+20)
-	rot90_times = tf.random_uniform([1], 0,5,dtype=tf.int32)[0]
-	crop_offset = tf.cast(tf.floor(tf.random_uniform([2], 0, SCALE_SIZE - CROP_SIZE + 1, seed=seed)), dtype=tf.int32)
-	def transform(img, rot90_times, crop_offset,scale_size=SCALE_SIZE,crop_size=CROP_SIZE):
-		with tf.name_scope('transform'):
-			r = img
-			# rotation
-			r = tf.image.rot90(r, k=rot90_times)
-            # random crop
-			r = tf.image.resize_images(r, [scale_size, scale_size], method=tf.image.ResizeMethod.AREA)
-			r = tf.image.crop_to_bounding_box(r, crop_offset[0], crop_offset[1], crop_size, crop_size)
-			return r
-	with tf.name_scope('transform_images'):
-		image = transform(image, rot90_times, crop_offset, scale_size=SCALE_SIZE, crop_size=CROP_SIZE)
-	
+	image = part(image, 180, tf.random_uniform(shape=[], minval=0,maxval=1,dtype=tf.int64), tf.random_uniform(shape=[], minval=0,maxval=1,dtype=tf.int64))
+	image = tf.image.resize_images(image, (model_size, model_size))
 	def noisy(img):
 		img_f = tf.reshape(img, [-1])
 		a_m = tf.where(img_f>1/255.0, tf.zeros_like(img_f), tf.ones(img_f.shape))    
@@ -111,21 +106,22 @@ with tf.name_scope('LoadImage'):
 	with tf.name_scope("contrast_images"):
 		image = contrast(image, param1=0.1, param2=0.9)
 
-	#label = tf.one_hot(label, depth=n_class)
+	label = tf.one_hot(label, depth=n_class)
 	label_batch, x_batch = tf.train.batch([label, image],batch_size=a.batch_size, allow_smaller_final_batch=False)
 	label_batch = tf.cast(label_batch, dtype=np.float32)
 
+	#test
 	test_filename_queue = tf.train.string_input_producer([test_csv_name], shuffle=False)
 	test_reader = tf.TextLineReader()
 	_, test_val = test_reader.read(test_filename_queue)
-	record_defaults = [["a"], ["a"], ["a"], [0], ["a"], [0]]
-	_, test_path, _, _, _, test_label = tf.decode_csv(test_val, record_defaults=record_defaults)
+	record_defaults = [["a"], ["a"], ["a"], [0], ["a"], [0], ["a"]]
+	_, _, _, _, _, test_label, test_path = tf.decode_csv(test_val, record_defaults=record_defaults)
 	test_readfile = tf.read_file(test_path)
 	test_image = tf.image.decode_jpeg(test_readfile, channels=3)
 	test_image = tf.image.convert_image_dtype(test_image, dtype=tf.float32)
 	test_image = tf.cast(test_image, dtype=np.float32)
 	test_image = tf.image.resize_images(test_image, (256, 256),method=tf.image.ResizeMethod.NEAREST_NEIGHBOR)
-	#test_label = tf.one_hot(test_label, depth=n_class)
+	test_label = tf.one_hot(test_label, depth=n_class)
 	test_label_batch, test_x_batch = tf.train.batch([test_label, test_image],batch_size=1, allow_smaller_final_batch=False)
 	test_label_batch = tf.cast(test_label_batch, dtype=np.float32)
 
@@ -149,18 +145,13 @@ def bunkatu(one_patch, size):
 				parts = tf.concat([parts,part], 0)
 	return parts
 """
-print(x_batch)
-print(test_x_batch)
-
 #add
 patch_size_t = random.randint(256//2, 256)
 stride = 20
 patch_size_v = 256//2
-patch_t = tf.extract_image_patches(x_batch, ksizes=[1, patch_size_t, patch_size_t, 1], strides=[1,stride, stride, 1], rates=[1, 1, 1, 1], padding='VALID')
+#patch_t = tf.extract_image_patches(x_batch, ksizes=[1, patch_size_t, patch_size_t, 1], strides=[1,stride, stride, 1], rates=[1, 1, 1, 1], padding='VALID')
 patch_v = tf.extract_image_patches(test_x_batch, ksizes=[1, patch_size_v, patch_size_v, 1], strides=[1,stride, stride, 1], rates=[1, 1, 1, 1], padding='VALID')
 
-print("patch_t shape", patch_t.shape)
-print("patch_v shape", patch_v.shape)
 
 def parts(patch, size):
 	for i in range(patch.shape[0]):
@@ -176,23 +167,22 @@ def parts(patch, size):
 					parts = tf.concat([parts,part], 0)
 	return parts
 
-parts_t = parts(patch_t, patch_size_t)
+#parts_t = parts(patch_t, patch_size_t)
 parts_v = parts(patch_v, patch_size_v)
 
-parts_t = tf.image.resize_images(parts_t, (model_size, model_size))
+#parts_t = tf.image.resize_images(parts_t, (model_size, model_size))
 parts_v= tf.image.resize_images(parts_v, (model_size, model_size))
 
+"""
 def zouhuku(item):
-	return tf.fill([patch_t.shape[1]*patch_t.shape[1]], item)
+	return tf.fill([patch_v.shape[1]*patch_v.shape[1]], item)
 
-label_original = label
-label = tf.map_fn(zouhuku, label)
-label = tf.reshape(label,[-1])
-label = tf.cast(label, dtype=np.int64)
-label = tf.one_hot(label, depth=n_class)
-label = tf.cast(label, dtype=np.float32)
-print("label", label)
-print("label original", label_original)
+label_zo = tf.map_fn(zouhuku, label)
+label_zo = tf.reshape(label_zo,[-1])
+label_zo = tf.cast(label_zo, dtype=np.int64)
+label_zo = tf.one_hot(label_zo, depth=n_class)
+label_zo = tf.cast(label_zo, dtype=np.float32)
+"""
 #--------------Model-----------------#
 #QQQ
 with tf.variable_scope('def_model', reuse=tf.AUTO_REUSE):
@@ -205,7 +195,7 @@ with tf.variable_scope('def_model', reuse=tf.AUTO_REUSE):
 
 with tf.name_scope('model'):
 	with tf.variable_scope('model', reuse=tf.AUTO_REUSE):
-		y = model(parts_t)
+		y = model(x_batch)
 		y_v = model(parts_v)
 
 #--------------Loss&Opt-----------------#
@@ -296,12 +286,12 @@ def Test_label(label):
 
 with tf.name_scope("accuracy"):
 	accuracy = Accuracy(y, label)
-	accuracy2 = Accuracy2(y_v, label)
-	accuracy3 = Accuracy3(y_v, label)
-	pred = Pred(y_v)
 
 def Showy(y):
 	return tf.argmax(y,1)
+
+def Showy_raw(y):
+	return y
 
 def Showlabel(label):
 	return tf.argmax(label,1)
@@ -313,6 +303,7 @@ def Testshow(y):
 
 showy = Showy(y_v)
 showlabel = Showlabel(label)
+showy_raw = Showy_raw(y_v)
 testshow = Testshow(y)[0]
 testshow2 = Testshow(y)[1]
 #test_y = Test_y(y)
@@ -322,8 +313,7 @@ testshow2 = Testshow(y)[1]
 with tf.name_scope('summary'):
 	with tf.name_scope('image_summary'):
 		tf.summary.image('image', tf.image.convert_image_dtype(data, dtype=tf.uint8, saturate=True), collections=['train'])
-		tf.summary.image('image', tf.image.convert_image_dtype(parts_t, dtype=tf.uint8, saturate=True), collections=['train'])
-
+		tf.summary.image('image', tf.image.convert_image_dtype(parts_v, dtype=tf.uint8, saturate=True), collections=['train'])
 	with tf.name_scope("train_summary"):
 		cost_summary_train = tf.summary.scalar('train_loss', cost, collections=['train'])
 		acc_summary_train = tf.summary.scalar("train_accuracy", accuracy, collections=['train'])
@@ -375,22 +365,27 @@ with tf.Session(config=tmp_config) as sess:
 				
 				#step_num = -(-test_csv.shape[0]//a.batch_size)
 				step_num = 51
-				tmp_acc2 = 0
-				tmp_acc3 = 0
 				check = 0
+				check_top = 0
 				for i in range(step_num):
-					a_2 = sess.run(accuracy2, feed_dict={am_testing: True, drop:0.0})
-					print(a_2)
-					a_3 = sess.run(accuracy3, feed_dict={am_testing: True, drop:0.0})
-					print(a_3)
-					#tmp_acc2 += sess.run(accuracy2, feed_dict={am_testing: True, drop:0.0})
-					#tmp_acc3 += sess.run(accuracy3, feed_dict={am_testing: True, drop:0.0})
-					tmp_acc2 += a_2
-					tmp_acc3 += a_3
-					showy_ = sess.run(showy, feed_dict={am_testing:True, drop:0.0})
+					showy_, showlabel_, softmax = sess.run([showy, showlabel, showy_raw], feed_dict={am_testing:True, drop:0.0})
+					#showy_ = sess.run(showy, feed_dict={am_testing:True, drop:0.0})
 					print(showy_)
-					showlabel_ = sess.run(showlabel, feed_dict={am_testing:True, drop:0.0})
+					#showlabel_ = sess.run(showlabel, feed_dict={am_testing:True, drop:0.0})
 					print(showlabel_)
+					#softmax = sess.run(showy_raw, feed_dict={am_testing:True, drop:0.0}) 
+		
+					softmax_each = np.argmax(softmax, 1) #各行の予測ラベル
+					max_softmax_value = np.array([])
+					for i in range(softmax.shape[0]):
+						max_softmax_value=np.append(max_softmax_value, softmax[i, softmax_each[i]]) #各マックスのソフトマックスの値
+					max_value_idx = np.argmax(max_softmax_value)
+					preds = softmax_each[max_value_idx]
+					print(preds)
+					print(softmax_each)
+					if np.any(preds==showlabel_[0]):
+						check_top+=1
+
 					if np.any(showy_==showlabel_[0]):
 						check+=1
 						print("check")
@@ -400,12 +395,9 @@ with tf.Session(config=tmp_config) as sess:
 					print("")
 					#print(sess.run(test_y, feed_dict={am_testing:True, drop:0.0}))
 					#print(sess.run(test_label, feed_dict={am_testing:True, drop:0.0}))
-				test_acc2 = tmp_acc2/step_num
-				test_acc3 = tmp_acc3/step_num
-				print('test_acc2', test_acc2)
-				print("test_acc3", test_acc3)
 				print("check", check/step_num)
-				summary_writer.add_summary(tf.Summary(value=[tf.Summary.Value(tag="test_summary/test_accuracy", simple_value=check/step_num)]), step)
+				print("check_top", check_top/step_num)
+				summary_writer.add_summary(tf.Summary(value=[tf.Summary.Value(tag="test_summary/test_accuracy", simple_value=check_top/step_num)]), step)
 
 				"""
 				patch_size = 112

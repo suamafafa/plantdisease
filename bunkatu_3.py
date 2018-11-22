@@ -317,7 +317,7 @@ init = tf.global_variables_initializer()
 #saver = tf.train.Saver()
 tmp_config = tf.ConfigProto(
     gpu_options=tf.GPUOptions(
-        visible_device_list="1",
+        visible_device_list="0",
 		allow_growth = True
 
     )

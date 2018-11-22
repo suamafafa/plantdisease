@@ -47,7 +47,7 @@ start_time = time.time()
 print("start time : " + str(start_time))
 
 #params 
-csv_name = 'tomato_df_train_random_2_resize.csv'
+csv_name = 'tomato_df_train_random_2.csv'
 #csv_name = "tomoto_and_unclass.csv"
 csv = pd.read_csv(csv_name, header=None)
 #test_csv_name = 'tomato_test_only_tomato.csv'
@@ -65,8 +65,8 @@ with tf.name_scope('LoadImage'):
 	filename_queue = tf.train.string_input_producer([csv_name], shuffle=True)
 	reader = tf.TextLineReader()
 	_, val = reader.read(filename_queue)
-	record_defaults = [["a"], [0], ["a"]]
-	_, label, path = tf.decode_csv(val, record_defaults=record_defaults)
+	record_defaults = [["a"], [0]]
+	path, label = tf.decode_csv(val, record_defaults=record_defaults)
 	readfile = tf.read_file(path)
 	image = tf.image.decode_jpeg(readfile, channels=3)
 	image = tf.image.convert_image_dtype(image, dtype=tf.float32)
@@ -135,25 +135,50 @@ data = tf.cond(am_testing, lambda:test_x_batch, lambda:x_batch)
 label = tf.cond(am_testing, lambda:test_label_batch, lambda:label_batch)
 drop = tf.placeholder(tf.float32) 
 
-"""
-def bunkatu(one_patch, size):
-	one = one_patch
-	for i in range(one.shape[0]):
-		for j in range(one.shape[0]):
-			tmp = one[i,j,]
-			part = tf.reshape(tmp, [size, size, 3])
-			part = tf.expand_dims(part, 0) #become 4d
-			if i==0andj==0:
-				parts = part
-			else:
-				parts = tf.concat([parts,part], 0)
-	return parts
-"""
+Ip = 1
+xi = 1e-6
+eps = 1.
+Ip = 1
+xi = 1e-6
+eps = 1.00
+
+#function
+def Get_normalized_vector(d):
+	with tf.name_scope('get_normalized_vec'):
+		d /= (1e-12 + tf.reduce_sum(tf.abs(d), axis=[1,2,3], keep_dims=True))
+		d /= tf.sqrt(1e-6 + tf.reduce_sum(tf.pow(d, 2.), axis=[1,2,3], keep_dims=True))
+		return d
+
+def KL_divergence(p, q):
+    # KL = 竏ｫp(x)log(p(x)/q(x))dx
+    #    = 竏ｫp(x)(log(p(x)) - log(q(x)))dx
+	kld = tf.reduce_mean(tf.reduce_sum(p * (tf.log(p + 1e-14) - tf.log(q + 1e-14)), axis=[1]))
+	return kld
+
+def Generate_perturbation(x): #画像に加えるノイズの生成
+	d = tf.random_normal(shape=tf.shape(x))
+	for i in range(Ip):
+		d = xi * Get_normalized_vector(d)
+		p = model(x)
+		q = model(x + d)
+		d_kl = KL_divergence(p,q)
+		grad = tf.gradients(d_kl, [d], aggregation_method=2)[0] # d(d_kl)/d(d)
+		d = tf.stop_gradient(grad)
+	return eps * Get_normalized_vector(d)
+
+def Get_VAT_loss(x,r): #生画像とノイズ画像の出力の差を計算
+	with tf.name_scope('Get_VAT_loss'):
+		p = tf.stop_gradient(model(x))
+		q = model(x + r)
+		loss = KL_divergence(p,q)
+		return tf.identity(loss, name='vat_loss')
+
 print(x_batch)
 print(test_x_batch)
 
 #add
-patch_size_t = random.randint(256//2, 256)
+#patch_size_t = random.randint(256//2, 256)
+patch_size_t = 200
 stride = 20
 patch_size_v = 256//2
 patch_t = tf.extract_image_patches(x_batch, ksizes=[1, patch_size_t, patch_size_t, 1], strides=[1,stride, stride, 1], rates=[1, 1, 1, 1], padding='VALID')
@@ -207,16 +232,31 @@ with tf.name_scope('model'):
 	with tf.variable_scope('model', reuse=tf.AUTO_REUSE):
 		y = model(parts_t)
 		y_v = model(parts_v)
+	with tf.name_scope('Generate_perturbation'):
+        # generate perturbation
+		r_adv = Generate_perturbation(parts_t)
+        # add perturbation onto x
+		data_r   = parts_t + r_adv
 
 #--------------Loss&Opt-----------------#
 with tf.name_scope("cost"):
-	cost = -tf.reduce_mean(tf.reduce_sum(label*tf.log(y), axis=[1]))
-	
+	#cost = -tf.reduce_mean(tf.reduce_sum(label*tf.log(y), axis=[1]))
+	with tf.name_scope('cross_entropy_loss'):
+		cross_entropy_loss = -tf.reduce_mean(tf.reduce_sum(label*tf.log(y), axis=[1]))
+
+	with tf.name_scope('conditional_entropy_loss'):
+		cond_entropy_loss = -tf.reduce_mean(tf.reduce_sum(y*tf.log(y), axis=[1]))
+
+	with tf.name_scope('vat_loss'):
+		vat_loss = Get_VAT_loss(parts_t, r_adv) #image & noise
+
+	cost = cross_entropy_loss + cond_entropy_loss + vat_loss	
+
 with tf.name_scope("opt"): 
 	#trainable_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, "trainable_section")
 	trainable_vars = [var for var in tf.trainable_variables()]
-	#adam = tf.train.AdamOptimizer(0.0002,0.5)
-	adam = tf.train.AdamOptimizer(0.001,0.5)
+	adam = tf.train.AdamOptimizer(0.0002,0.5)
+	#adam = tf.train.AdamOptimizer(0.001,0.5)
 	gradients_vars = adam.compute_gradients(cost, var_list=trainable_vars)	
 	train_op = adam.apply_gradients(gradients_vars)
 
@@ -323,17 +363,19 @@ with tf.name_scope('summary'):
 	with tf.name_scope('image_summary'):
 		tf.summary.image('image', tf.image.convert_image_dtype(data, dtype=tf.uint8, saturate=True), collections=['train'])
 		tf.summary.image('image', tf.image.convert_image_dtype(parts_t, dtype=tf.uint8, saturate=True), collections=['train'])
+		tf.summary.image('image_noise', tf.image.convert_image_dtype(data_r, dtype=tf.uint8, saturate=True), collections=['train'])
 
 	with tf.name_scope("train_summary"):
 		cost_summary_train = tf.summary.scalar('train_loss', cost, collections=['train'])
 		acc_summary_train = tf.summary.scalar("train_accuracy", accuracy, collections=['train'])
+		tf.summary.scalar('cross_entropy_loss', cross_entropy_loss, collections=['train'])
+		tf.summary.scalar('cond_entropy_loss', cond_entropy_loss, collections=['train'])
+		tf.summary.scalar('vat_loss', vat_loss, collections=['train'])
+		tf.summary.scalar('total_loss', cost, collections=['train'])
 	
 	with tf.name_scope("test_summary"):
 		acc_summary_test = tf.summary.scalar("test_accuracy", accuracy)
 
-	for var in tf.trainable_variables():
-		var_summary = tf.summary.histogram(var.op.name + '/Variable_histogram', var, collections=['train'])
-	
 #---------------Session-----------------#
 init = tf.global_variables_initializer()
 #saver = tf.train.Saver()

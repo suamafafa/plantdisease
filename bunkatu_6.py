@@ -47,7 +47,7 @@ start_time = time.time()
 print("start time : " + str(start_time))
 
 #params 
-csv_name = 'tomato_df_train_random_2_resize.csv'
+csv_name = 'tomato_df_train_random_2.csv'
 #csv_name = "tomoto_and_unclass.csv"
 csv = pd.read_csv(csv_name, header=None)
 #test_csv_name = 'tomato_test_only_tomato.csv'
@@ -65,8 +65,8 @@ with tf.name_scope('LoadImage'):
 	filename_queue = tf.train.string_input_producer([csv_name], shuffle=True)
 	reader = tf.TextLineReader()
 	_, val = reader.read(filename_queue)
-	record_defaults = [["a"], [0], ["a"]]
-	_, label, path = tf.decode_csv(val, record_defaults=record_defaults)
+	record_defaults = [["a"], [0]]
+	path, label = tf.decode_csv(val, record_defaults=record_defaults)
 	readfile = tf.read_file(path)
 	image = tf.image.decode_jpeg(readfile, channels=3)
 	image = tf.image.convert_image_dtype(image, dtype=tf.float32)
